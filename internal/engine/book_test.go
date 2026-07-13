@@ -48,6 +48,44 @@ func TestTimePriority(t *testing.T) {
 	}
 }
 
+func TestVolumeCache(t *testing.T) {
+	cases := []struct {
+		name   string
+		orders []Order
+	}{
+		{
+			name: "cached_volume_is_consistent_with_summed_remaining",
+			orders: []Order{
+				{ID: 1, Side: Buy, Type: Limit, Price: 9950, Quantity: 100, Remaining: 25},
+				{ID: 2, Side: Buy, Type: Limit, Price: 9950, Quantity: 100, Remaining: 50},
+				{ID: 3, Side: Buy, Type: Limit, Price: 9950, Quantity: 100, Remaining: 75},
+			},
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			b := NewBook()
+
+			for i := range tc.orders {
+				b.rest(&tc.orders[i])
+			}
+
+			for _, side := range []*bookSide{b.bids, b.asks} {
+				for _, lvl := range side.levels {
+					gotVolume := lvl.volume
+					wantVolume := int64(0)
+					for node := lvl.orders.Front(); node != nil; node = node.Next() {
+						wantVolume += node.Value.(*Order).Remaining
+					}
+					if gotVolume != wantVolume {
+						t.Fatalf("level %d: cached volume %d != actual %d", lvl.price, gotVolume, wantVolume)
+					}
+				}
+			}
+		})
+	}
+}
+
 func TestRestAndCancel(t *testing.T) {
 	cases := []struct {
 		name        string
