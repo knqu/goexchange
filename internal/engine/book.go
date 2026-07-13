@@ -133,3 +133,17 @@ func (b *Book) cancel(id OrderID) (*Order, bool) {
 
 	return ref.order, true
 }
+
+func (b *Book) BestBid() (int64, bool) {
+	if len(b.bids.levels) == 0 {
+		return 0, false
+	}
+	return b.bids.levels[0].price, true
+}
+
+func (b *Book) BestAsk() (int64, bool) {
+	if len(b.asks.levels) == 0 {
+		return 0, false
+	}
+	return b.asks.levels[0].price, true
+}

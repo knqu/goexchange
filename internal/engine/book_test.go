@@ -133,7 +133,7 @@ func TestRestAndCancel(t *testing.T) {
 
 			got := int64(0)
 			if len(b.bids.levels) > 0 {
-				got = b.bids.levels[0].price
+				got, _ = b.BestBid()
 			}
 			if got != tc.wantBestBid {
 				t.Fatalf("best bid = %d, want %d", got, tc.wantBestBid)
