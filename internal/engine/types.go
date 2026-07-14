@@ -24,7 +24,7 @@ const (
 	FOK            // immediately attempt to fill the order completely; if unable, the entire order is cancelled
 )
 
-type OrderID uint64
+type OrderID uint64 // orderIDs start at 1; 0 is reserved as a sentinel value for no order
 
 type Order struct {
 	ID        OrderID

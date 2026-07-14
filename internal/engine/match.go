@@ -21,29 +21,23 @@ func (b *Book) Apply(cmd Command, seq *seqCounter) []Event {
 	case CmdCancel:
 		return b.applyCancel(cmd.CancelID, seq)
 	default:
-		return []Event{{Type: EventRejected, Seq: seq.next(),
-			Reason: RejectUnknownCommand}}
+		return reject(seq, 0, RejectUnknownCommand)
 	}
 }
 
 // Caller guarantees IDs are never reused.
 func (b *Book) applySubmit(o Order, seq *seqCounter) []Event {
 	if (o.Type == Limit && o.Price <= 0) || (o.Type == Market && o.Price != 0) {
-		return []Event{{Type: EventRejected, Seq: seq.next(),
-			OrderID: o.ID, Reason: RejectInvalidPrice}}
+		return reject(seq, o.ID, RejectInvalidPrice)
 	}
 	if o.Quantity <= 0 {
-		return []Event{{Type: EventRejected, Seq: seq.next(),
-			OrderID: o.ID, Reason: RejectInvalidQuantity}}
+		return reject(seq, o.ID, RejectInvalidQuantity)
 	}
 
 	o.Remaining = o.Quantity
 
 	if o.TIF == FOK && !b.fillable(&o) {
-		return []Event{
-			{Type: EventRejected, Seq: seq.next(),
-				OrderID: o.ID, Reason: RejectFOKInsufficient},
-		}
+		return reject(seq, o.ID, RejectFOKInsufficient)
 	}
 
 	events := []Event{{Type: EventAccepted, Seq: seq.next(),
@@ -66,11 +60,16 @@ func (b *Book) applySubmit(o Order, seq *seqCounter) []Event {
 func (b *Book) applyCancel(id OrderID, seq *seqCounter) []Event {
 	o, ok := b.cancel(id)
 	if !ok {
-		return []Event{{Type: EventRejected, Seq: seq.next(),
-			OrderID: id, Reason: RejectOrderNotFound}}
+		return reject(seq, o.ID, RejectOrderNotFound)
 	}
 	return []Event{{Type: EventCanceled, Seq: seq.next(),
 		OrderID: o.ID, Price: o.Price, Quantity: o.Remaining}}
+}
+
+// --- helpers ---
+
+func reject(seq *seqCounter, id OrderID, reason RejectReason) []Event {
+	return []Event{{Type: EventRejected, Seq: seq.next(), OrderID: id, Reason: reason}}
 }
 
 // --- matching logic ---
