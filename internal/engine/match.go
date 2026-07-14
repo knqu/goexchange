@@ -11,7 +11,7 @@ func (s *seqCounter) next() uint64 {
 	return s.n
 }
 
-// --- command routing logic ---
+// --- command handlers ---
 
 // Apply is the entry point for all engine commands.
 func (b *Book) Apply(cmd Command, seq *seqCounter) []Event {
@@ -64,12 +64,6 @@ func (b *Book) applyCancel(id OrderID, seq *seqCounter) []Event {
 	}
 	return []Event{{Type: EventCanceled, Seq: seq.next(),
 		OrderID: o.ID, Price: o.Price, Quantity: o.Remaining}}
-}
-
-// --- helpers ---
-
-func reject(seq *seqCounter, id OrderID, reason RejectReason) []Event {
-	return []Event{{Type: EventRejected, Seq: seq.next(), OrderID: id, Reason: reason}}
 }
 
 // --- matching logic ---
@@ -151,4 +145,24 @@ func (b *Book) fillable(o *Order) bool {
 	}
 
 	return availableVolume >= o.Remaining
+}
+
+func reject(seq *seqCounter, id OrderID, reason RejectReason) []Event {
+	return []Event{{Type: EventRejected, Seq: seq.next(), OrderID: id, Reason: reason}}
+}
+
+// --- depth ---
+
+// topN returns the top-n prices and their corresponding quantities (volumes) from one side of the book.
+func (bs *bookSide) topN(n int) []PriceLevel {
+	priceLevels := make([]PriceLevel, 0, min(n, len(bs.levels)))
+	for _, lvl := range bs.levels[:min(n, len(bs.levels))] {
+		priceLevels = append(priceLevels, PriceLevel{Price: lvl.price, Quantity: lvl.volume})
+	}
+	return priceLevels
+}
+
+// Depth returns the top-n bids and asks in the book.
+func (b *Book) Depth(n int) (bids, asks []PriceLevel) {
+	return b.bids.topN(n), b.asks.topN(n)
 }

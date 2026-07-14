@@ -86,3 +86,11 @@ type Command struct {
 	Order    Order   // CmdSubmit (passed by value; engine owns its own copy)
 	CancelID OrderID // CmdCancel
 }
+
+// --- book types ---
+
+// PriceLevel represents one rung of a depth ladder: total resting quantity at a price
+type PriceLevel struct {
+	Price    int64
+	Quantity int64
+}
