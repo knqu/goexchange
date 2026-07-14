@@ -46,6 +46,7 @@ const (
 	EventRejected
 	EventTraded
 	EventCanceled
+	EventExpired
 )
 
 type RejectReason uint8
@@ -53,7 +54,8 @@ type RejectReason uint8
 const (
 	RejectNone RejectReason = iota
 	RejectUnknownCommand
-	RejectInvalidPriceOrQuantity
+	RejectInvalidPrice
+	RejectInvalidQuantity
 	RejectOrderNotFound
 	RejectFOKInsufficient
 )

@@ -28,9 +28,13 @@ func (b *Book) Apply(cmd Command, seq *seqCounter) []Event {
 
 // Caller guarantees IDs are never reused.
 func (b *Book) applySubmit(o Order, seq *seqCounter) []Event {
-	if (o.Type == Limit && o.Price <= 0) || (o.Type == Market && o.Price != 0) || o.Quantity <= 0 {
+	if (o.Type == Limit && o.Price <= 0) || (o.Type == Market && o.Price != 0) {
 		return []Event{{Type: EventRejected, Seq: seq.next(),
-			OrderID: o.ID, Reason: RejectInvalidPriceOrQuantity}}
+			OrderID: o.ID, Reason: RejectInvalidPrice}}
+	}
+	if o.Quantity <= 0 {
+		return []Event{{Type: EventRejected, Seq: seq.next(),
+			OrderID: o.ID, Reason: RejectInvalidQuantity}}
 	}
 
 	o.Remaining = o.Quantity
@@ -46,8 +50,14 @@ func (b *Book) applySubmit(o Order, seq *seqCounter) []Event {
 		OrderID: o.ID, Side: o.Side, Price: o.Price, Quantity: o.Quantity}}
 	events = append(events, b.matchLoop(&o, seq)...)
 
-	if o.Remaining > 0 && o.Type == Limit && o.TIF == Day {
-		b.rest(&o) // resting is safe because o is a local copy
+	if o.Remaining > 0 {
+		if o.Type == Limit && o.TIF == Day {
+			b.rest(&o) // resting is safe because o is a local copy
+		} else {
+			// unfilled remainders of market and IOC orders are discarded
+			events = append(events, Event{Type: EventExpired, Seq: seq.next(),
+				OrderID: o.ID, Side: o.Side, Price: o.Price, Quantity: o.Remaining})
+		}
 	}
 
 	return events
