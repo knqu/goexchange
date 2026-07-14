@@ -56,9 +56,9 @@ func TestVolumeCache(t *testing.T) {
 		{
 			name: "cached_volume_is_consistent_with_summed_remaining",
 			orders: []Order{
-				{ID: 1, Side: Buy, Type: Limit, Price: 9950, Quantity: 100, Remaining: 25},
-				{ID: 2, Side: Buy, Type: Limit, Price: 9950, Quantity: 100, Remaining: 50},
-				{ID: 3, Side: Buy, Type: Limit, Price: 9950, Quantity: 100, Remaining: 75},
+				{ID: 1, Side: Buy, Type: Limit, Price: 9950, Quantity: 25, Remaining: 25},
+				{ID: 2, Side: Buy, Type: Limit, Price: 9950, Quantity: 50, Remaining: 50},
+				{ID: 3, Side: Buy, Type: Limit, Price: 9950, Quantity: 75, Remaining: 75},
 			},
 		},
 	}

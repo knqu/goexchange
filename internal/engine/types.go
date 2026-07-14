@@ -52,6 +52,8 @@ type RejectReason uint8
 
 const (
 	RejectNone RejectReason = iota
+	RejectUnknownCommand
+	RejectInvalidPriceOrQuantity
 	RejectOrderNotFound
 	RejectFOKInsufficient
 )
@@ -65,4 +67,20 @@ type Event struct {
 	Price        int64
 	Quantity     int64
 	Reason       RejectReason
+}
+
+// --- command types ---
+
+type CmdType uint8
+
+const (
+	CmdSubmit CmdType = iota
+	CmdCancel
+)
+
+// Command is an instruction to the engine.
+type Command struct {
+	Type     CmdType
+	Order    Order   // CmdSubmit (passed by value; engine owns its own copy)
+	CancelID OrderID // CmdCancel
 }
