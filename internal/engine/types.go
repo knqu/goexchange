@@ -24,10 +24,12 @@ const (
 	FOK            // immediately attempt to fill the order completely; if unable, the entire order is cancelled
 )
 
-type OrderID uint64 // orderIDs start at 1; 0 is reserved as a sentinel value for no order
+type OrderID uint64 // starts at 1; should never be sent into engine as 0
+type AgentID uint64 // starts at 1; should never be sent into engine as 0
 
 type Order struct {
 	ID        OrderID
+	AgentID   AgentID
 	Side      Side
 	Type      OrderType
 	TIF       TIF
@@ -58,6 +60,7 @@ const (
 	RejectInvalidQuantity
 	RejectOrderNotFound
 	RejectFOKInsufficient
+	CancelSelfTrade
 )
 
 type Event struct {

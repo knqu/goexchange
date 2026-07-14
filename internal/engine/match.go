@@ -81,8 +81,23 @@ func (b *Book) matchLoop(o *Order, seq *seqCounter) []Event {
 
 		for node := best.orders.Front(); node != nil && o.Remaining > 0; {
 			maker := node.Value.(*Order)
-			quantity := min(o.Remaining, maker.Remaining)
 
+			// prevent agents from trading against their own liquidity by cancelling resting orders
+			if o.AgentID == maker.AgentID {
+				nextNode := node.Next()
+
+				best.orders.Remove(node)
+				best.volume -= maker.Remaining
+				delete(b.byID, maker.ID)
+
+				events = append(events, Event{Type: EventCanceled, Seq: seq.next(),
+					OrderID: maker.ID, Price: maker.Price, Quantity: maker.Remaining, Reason: CancelSelfTrade})
+
+				node = nextNode
+				continue
+			}
+
+			quantity := min(o.Remaining, maker.Remaining)
 			o.Remaining -= quantity
 			maker.Remaining -= quantity
 			best.volume -= quantity
@@ -135,13 +150,18 @@ func (b *Book) fillable(o *Order) bool {
 	availableVolume := int64(0)
 
 	for _, lvl := range opp.levels {
-		if availableVolume >= o.Remaining {
-			return true
-		}
 		if !crosses(o, lvl.price) {
 			break
 		}
-		availableVolume += lvl.volume
+		for node := lvl.orders.Front(); node != nil; node = node.Next() {
+			if availableVolume >= o.Remaining {
+				return true
+			}
+			maker := node.Value.(*Order)
+			if o.AgentID != maker.AgentID {
+				availableVolume += maker.Remaining
+			}
+		}
 	}
 
 	return availableVolume >= o.Remaining
