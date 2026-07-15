@@ -9,12 +9,32 @@ const (
 	Sell
 )
 
+func (s Side) String() string {
+	switch s {
+	case Buy:
+		return "buy"
+	case Sell:
+		return "sell"
+	}
+	return ""
+}
+
 type OrderType uint8
 
 const (
 	Limit OrderType = iota
 	Market
 )
+
+func (ot OrderType) String() string {
+	switch ot {
+	case Limit:
+		return "limit"
+	case Market:
+		return "market"
+	}
+	return ""
+}
 
 type TIF uint8 // time in force
 
@@ -23,6 +43,18 @@ const (
 	IOC            // immediately attempt to execute; any unfilled portion is cancelled
 	FOK            // immediately attempt to fill the order completely; if unable, the entire order is cancelled
 )
+
+func (tif TIF) String() string {
+	switch tif {
+	case Day:
+		return "day"
+	case IOC:
+		return "immediate-or-cancel"
+	case FOK:
+		return "fill-or-kill"
+	}
+	return ""
+}
 
 type OrderID uint64 // starts at 1; should never be sent into engine as 0
 type AgentID uint64 // starts at 1; should never be sent into engine as 0

@@ -27,6 +27,11 @@ func (b *Book) Apply(cmd Command, seq *seqCounter) []Event {
 
 // Caller guarantees IDs are never reused.
 func (b *Book) applySubmit(o Order, seq *seqCounter) []Event {
+	if _, exists := b.byID[o.ID]; exists {
+		panic("duplicate order id")
+	}
+
+	// if price and quantity are both invalid, RejectInvalidPrice will be caught first
 	if (o.Type == Limit && o.Price <= 0) || (o.Type == Market && o.Price != 0) {
 		return reject(seq, o.ID, RejectInvalidPrice)
 	}
@@ -169,20 +174,4 @@ func (b *Book) fillable(o *Order) bool {
 
 func reject(seq *seqCounter, id OrderID, reason RejectReason) []Event {
 	return []Event{{Type: EventRejected, Seq: seq.next(), OrderID: id, Reason: reason}}
-}
-
-// --- depth ---
-
-// topN returns the top-n prices and their corresponding quantities (volumes) from one side of the book.
-func (bs *bookSide) topN(n int) []PriceLevel {
-	priceLevels := make([]PriceLevel, 0, min(n, len(bs.levels)))
-	for _, lvl := range bs.levels[:min(n, len(bs.levels))] {
-		priceLevels = append(priceLevels, PriceLevel{Price: lvl.price, Quantity: lvl.volume})
-	}
-	return priceLevels
-}
-
-// Depth returns the top-n bids and asks in the book.
-func (b *Book) Depth(n int) (bids, asks []PriceLevel) {
-	return b.bids.topN(n), b.asks.topN(n)
 }

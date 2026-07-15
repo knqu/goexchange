@@ -30,6 +30,16 @@ type bookSide struct {
 	byPrice map[int64]*level // cache of levels by price
 }
 
+func (bs bookSide) String() string {
+	switch bs.side {
+	case Buy:
+		return "bid"
+	case Sell:
+		return "ask"
+	}
+	return ""
+}
+
 func newBookSide(s Side) *bookSide {
 	return &bookSide{side: s, byPrice: make(map[int64]*level)}
 }
@@ -68,6 +78,16 @@ func (bs *bookSide) getOrCreateLevel(price int64) *level {
 func (bs *bookSide) removeLevelAt(i int) {
 	delete(bs.byPrice, bs.levels[i].price)
 	bs.levels = slices.Delete(bs.levels, i, i+1)
+}
+
+// topN returns the top-n prices and their corresponding quantities (volumes) from one side of the book.
+// The returned slice is newly allocated and independent; it should never change (do not convert to a reused buffer).
+func (bs *bookSide) topN(n int) []PriceLevel {
+	priceLevels := make([]PriceLevel, 0, min(n, len(bs.levels)))
+	for _, lvl := range bs.levels[:min(n, len(bs.levels))] {
+		priceLevels = append(priceLevels, PriceLevel{Price: lvl.price, Quantity: lvl.volume})
+	}
+	return priceLevels
 }
 
 // --- book ---
@@ -146,4 +166,10 @@ func (b *Book) BestAsk() (int64, bool) {
 		return 0, false
 	}
 	return b.asks.levels[0].price, true
+}
+
+// Depth returns the top-n bids and asks in the book as an independent snapshot.
+// Results are never overwritten after being returned; safe to retain.
+func (b *Book) Depth(n int) (bids, asks []PriceLevel) {
+	return b.bids.topN(n), b.asks.topN(n)
 }
