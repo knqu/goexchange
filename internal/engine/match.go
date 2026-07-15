@@ -60,7 +60,7 @@ func (b *Book) applySubmit(o Order, seq *seqCounter) []Event {
 func (b *Book) applyCancel(id OrderID, seq *seqCounter) []Event {
 	o, ok := b.cancel(id)
 	if !ok {
-		return reject(seq, o.ID, RejectOrderNotFound)
+		return reject(seq, id, RejectOrderNotFound) // echo requested OrderID (no actual order exists)
 	}
 	return []Event{{Type: EventCanceled, Seq: seq.next(),
 		OrderID: o.ID, Price: o.Price, Quantity: o.Remaining}}
