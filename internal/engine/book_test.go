@@ -55,6 +55,12 @@ func (b *Book) audit() error {
 	if err := b.asks.audit(); err != nil {
 		return err
 	}
+	// invariant: resting book is not crossed
+	if bid, ok := b.BestBid(); ok {
+		if ask, ok := b.BestAsk(); ok && bid >= ask {
+			return fmt.Errorf("book is crossed: bid %d >= ask %d", bid, ask)
+		}
+	}
 	// invariant: every byID ref resides where it claims
 	for id, ref := range b.byID {
 		// ref.elem points at the order in the level's linked list
