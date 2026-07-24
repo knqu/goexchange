@@ -37,6 +37,7 @@ func NewEngine(symbol string, buf int, events chan<- []Event) *Engine {
 }
 
 // Run is the single-writer command input loop for the book.
+// The gateway must stop accepting commands before stopping the engine (otherwise the drain will not complete).
 func (e *Engine) Run(ctx context.Context) {
 	defer close(e.done)
 	for {
@@ -44,7 +45,15 @@ func (e *Engine) Run(ctx context.Context) {
 		case cmd := <-e.cmds:
 			e.events <- e.book.Apply(cmd, &e.seq)
 		case <-ctx.Done():
-			return
+			// enforce grateful shutdown by draining remaining buffered commands
+			for {
+				select {
+				case cmd := <-e.cmds:
+					e.events <- e.book.Apply(cmd, &e.seq)
+				default:
+					return // exit once no more commands are ready (meaning cmds is empty)
+				}
+			}
 		}
 	}
 }
