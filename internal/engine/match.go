@@ -1,16 +1,5 @@
 package engine
 
-// --- sequence counter ---
-
-type seqCounter struct {
-	n uint64
-}
-
-func (s *seqCounter) next() uint64 {
-	s.n++
-	return s.n
-}
-
 // --- command handlers ---
 
 // Apply is the entry point for all engine commands.
