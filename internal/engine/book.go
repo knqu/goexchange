@@ -71,6 +71,7 @@ func (bs *bookSide) getOrCreateLevel(price int64) *level {
 	bs.levels = slices.Insert(bs.levels, i, lvl)
 
 	bs.byPrice[price] = lvl
+
 	return lvl
 }
 
@@ -84,9 +85,11 @@ func (bs *bookSide) removeLevelAt(i int) {
 // The returned slice is newly allocated and independent; it should never change (do not convert to a reused buffer).
 func (bs *bookSide) topN(n int) []PriceLevel {
 	priceLevels := make([]PriceLevel, 0, min(n, len(bs.levels)))
+
 	for _, lvl := range bs.levels[:min(n, len(bs.levels))] {
 		priceLevels = append(priceLevels, PriceLevel{Price: lvl.price, Quantity: lvl.volume})
 	}
+
 	return priceLevels
 }
 

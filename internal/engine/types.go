@@ -81,6 +81,8 @@ const (
 	EventTraded
 	EventCanceled
 	EventExpired
+	EventHalted
+	EventResumed
 )
 
 type RejectReason uint8
@@ -92,6 +94,7 @@ const (
 	RejectInvalidQuantity
 	RejectOrderNotFound
 	RejectFOKInsufficient
+	RejectHalted
 	CancelSelfTrade
 )
 
@@ -113,6 +116,8 @@ type CmdType uint8
 const (
 	CmdSubmit CmdType = iota
 	CmdCancel
+	CmdHalt
+	CmdResume
 )
 
 // Command is an instruction to the engine.

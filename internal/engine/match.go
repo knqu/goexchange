@@ -14,7 +14,7 @@ func (b *Book) Apply(cmd Command, seq *seqCounter) []Event {
 	}
 }
 
-// Caller guarantees IDs are never reused.
+// Gateway guarantees order IDs are never reused.
 func (b *Book) applySubmit(o Order, seq *seqCounter) []Event {
 	if _, exists := b.byID[o.ID]; exists {
 		panic("duplicate order id")
@@ -148,17 +148,17 @@ func (b *Book) fillable(o *Order) bool {
 			break
 		}
 		for node := lvl.orders.Front(); node != nil; node = node.Next() {
-			if availableVolume >= o.Remaining {
-				return true
-			}
 			maker := node.Value.(*Order)
 			if o.AgentID != maker.AgentID {
 				availableVolume += maker.Remaining
+				if availableVolume >= o.Remaining {
+					return true
+				}
 			}
 		}
 	}
 
-	return availableVolume >= o.Remaining
+	return false
 }
 
 func reject(seq *seqCounter, id OrderID, reason RejectReason) []Event {
