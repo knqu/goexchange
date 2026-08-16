@@ -30,6 +30,7 @@ func submit(t *testing.T, b *Book, seq *seqCounter, o Order) []Event {
 	if err := b.audit(); err != nil {
 		t.Fatalf("book invariant broken after order %d: %v", o.ID, err)
 	}
+
 	return events
 }
 
@@ -88,7 +89,7 @@ func TestMatching(t *testing.T) {
 			},
 			order: Order{ID: 4, AgentID: 4, Side: Buy, Type: Limit, TIF: FOK, Price: 9950, Quantity: 400},
 			want: []Event{
-				{Type: EventRejected, Seq: 4, OrderID: 4, Reason: RejectFOKInsufficient},
+				{Type: EventRejected, Seq: 4, OrderID: 4, RejectReason: RejectFOKInsufficient},
 			},
 		},
 		{
@@ -100,7 +101,7 @@ func TestMatching(t *testing.T) {
 			order: limit(3, 1, Buy, 9950, 100), // agent 1 crosses its own quote
 			want: []Event{
 				{Type: EventAccepted, Seq: 3, OrderID: 3, Side: Buy, Price: 9950, Quantity: 100},
-				{Type: EventCanceled, Seq: 4, OrderID: 1, Price: 9950, Quantity: 100, Reason: CancelSelfTrade},
+				{Type: EventCanceled, Seq: 4, OrderID: 1, Price: 9950, Quantity: 100, CancelReason: CancelSelfTrade},
 				{Type: EventTraded, Seq: 5, OrderID: 3, MakerOrderID: 2, Side: Buy, Price: 9950, Quantity: 100},
 			},
 		},
@@ -189,6 +190,7 @@ func TestBookInvariantsUnderRandomCommands(t *testing.T) {
 		if err := b.audit(); err != nil {
 			t.Fatalf("command %d broke the book: %v", i, err)
 		}
+
 		// invariant: event stream is gapless (no Seq lost)
 		for _, event := range events {
 			if event.Seq != lastSeq+1 {

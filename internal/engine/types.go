@@ -85,6 +85,14 @@ const (
 	EventResumed
 )
 
+type CancelReason uint8
+
+const (
+	CancelNone CancelReason = iota
+	CancelUser
+	CancelSelfTrade
+)
+
 type RejectReason uint8
 
 const (
@@ -95,7 +103,6 @@ const (
 	RejectOrderNotFound
 	RejectFOKInsufficient
 	RejectHalted
-	CancelSelfTrade
 )
 
 type Event struct {
@@ -106,7 +113,8 @@ type Event struct {
 	Side         Side
 	Price        int64
 	Quantity     int64
-	Reason       RejectReason
+	CancelReason CancelReason
+	RejectReason RejectReason
 }
 
 // --- command types ---

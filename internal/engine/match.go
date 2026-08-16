@@ -57,7 +57,7 @@ func (b *Book) applyCancel(id OrderID, seq *seqCounter) []Event {
 		return reject(seq, id, RejectOrderNotFound) // echo requested OrderID (no actual order exists)
 	}
 	return []Event{{Type: EventCanceled, Seq: seq.next(),
-		OrderID: o.ID, Price: o.Price, Quantity: o.Remaining}}
+		OrderID: o.ID, Price: o.Price, Quantity: o.Remaining, CancelReason: CancelUser}}
 }
 
 // --- matching logic ---
@@ -85,7 +85,7 @@ func (b *Book) matchLoop(o *Order, seq *seqCounter) []Event {
 				delete(b.byID, maker.ID)
 
 				events = append(events, Event{Type: EventCanceled, Seq: seq.next(),
-					OrderID: maker.ID, Price: maker.Price, Quantity: maker.Remaining, Reason: CancelSelfTrade})
+					OrderID: maker.ID, Price: maker.Price, Quantity: maker.Remaining, CancelReason: CancelSelfTrade})
 
 				node = nextNode
 				continue
@@ -162,5 +162,5 @@ func (b *Book) fillable(o *Order) bool {
 }
 
 func reject(seq *seqCounter, id OrderID, reason RejectReason) []Event {
-	return []Event{{Type: EventRejected, Seq: seq.next(), OrderID: id, Reason: reason}}
+	return []Event{{Type: EventRejected, Seq: seq.next(), OrderID: id, RejectReason: reason}}
 }

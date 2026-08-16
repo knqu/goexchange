@@ -39,6 +39,7 @@ func TestConcurrentSubmitters(t *testing.T) {
 			}
 		}(w)
 	}
+
 	wg.Wait()       // block main goroutine until all submitters are done sending
 	cancel()        // stop engine loop
 	<-engine.Done() // wait until engine's Run has actually returned (to prevent send on closed channel panic)

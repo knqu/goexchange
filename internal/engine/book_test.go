@@ -17,15 +17,18 @@ func (bs *bookSide) audit() error {
 		if lvl.orders.Len() == 0 {
 			return fmt.Errorf("%s: empty level at price %d not reaped", side, lvl.price)
 		}
+
 		// invariant: best-first sort
 		if i > 0 && !bs.better(bs.levels[i-1].price, lvl.price) {
 			return fmt.Errorf("%s: levels out of order at index %d: %d then %d",
 				side, i, bs.levels[i-1].price, lvl.price)
 		}
+
 		// invariant: cached byPrice agrees with the slice
 		if bs.byPrice[lvl.price] != lvl {
 			return fmt.Errorf("%s: byPrice[%d] does not point at the level in the slice", side, lvl.price)
 		}
+
 		// invariant: cached volume agrees with the sum of Remaining across level.orders
 		var sum int64
 		for node := lvl.orders.Front(); node != nil; node = node.Next() {
@@ -40,10 +43,12 @@ func (bs *bookSide) audit() error {
 				side, lvl.price, lvl.volume, sum)
 		}
 	}
+
 	// invariant: byPrice and levels slice agree on count
 	if len(bs.byPrice) != len(bs.levels) {
 		return fmt.Errorf("%s: byPrice has %d entries, slice has %d levels", side, len(bs.byPrice), len(bs.levels))
 	}
+
 	return nil
 }
 
@@ -55,23 +60,27 @@ func (b *Book) audit() error {
 	if err := b.asks.audit(); err != nil {
 		return err
 	}
+
 	// invariant: resting book is not crossed
 	if bid, ok := b.BestBid(); ok {
 		if ask, ok := b.BestAsk(); ok && bid >= ask {
 			return fmt.Errorf("book is crossed: bid %d >= ask %d", bid, ask)
 		}
 	}
+
 	// invariant: every byID ref resides where it claims
 	for id, ref := range b.byID {
 		// ref.elem points at the order in the level's linked list
 		if ref.elem.Value.(*Order) != ref.order {
 			return fmt.Errorf("byID[%d]: elem does not hold the ref's order", id)
 		}
+
 		// ref.level is consistent with the side's byPrice map
 		if ref.level != ref.side.byPrice[ref.order.Price] {
 			return fmt.Errorf("byID[%d]: ref.level is not the live level at price %d", id, ref.order.Price)
 		}
 	}
+
 	return nil
 }
 
