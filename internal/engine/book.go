@@ -84,9 +84,10 @@ func (bs *bookSide) removeLevelAt(i int) {
 // topN returns the top-n prices and their corresponding quantities (volumes) from one side of the book.
 // The returned slice is newly allocated and independent; it should never change (do not convert to a reused buffer).
 func (bs *bookSide) topN(n int) []PriceLevel {
-	priceLevels := make([]PriceLevel, 0, min(n, len(bs.levels)))
+	n = max(0, min(n, len(bs.levels))) // clamp to [0, len(bs.levels)]; guards make() capacity and slice bounds
 
-	for _, lvl := range bs.levels[:min(n, len(bs.levels))] {
+	priceLevels := make([]PriceLevel, 0, n)
+	for _, lvl := range bs.levels[:n] {
 		priceLevels = append(priceLevels, PriceLevel{Price: lvl.price, Quantity: lvl.volume})
 	}
 
