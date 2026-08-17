@@ -57,7 +57,8 @@ func (b *Book) applyCancel(id OrderID, seq *seqCounter) []Event {
 		return reject(seq, id, RejectOrderNotFound) // echo requested OrderID (no actual order exists)
 	}
 	return []Event{{Type: EventCanceled, Seq: seq.next(),
-		OrderID: o.ID, Price: o.Price, Quantity: o.Remaining, CancelReason: CancelUser}}
+		OrderID: o.ID, Side: o.Side, Price: o.Price, Quantity: o.Remaining,
+		CancelReason: CancelUser}}
 }
 
 // --- matching logic ---
@@ -85,7 +86,8 @@ func (b *Book) matchLoop(o *Order, seq *seqCounter) []Event {
 				delete(b.byID, maker.ID)
 
 				events = append(events, Event{Type: EventCanceled, Seq: seq.next(),
-					OrderID: maker.ID, Price: maker.Price, Quantity: maker.Remaining, CancelReason: CancelSelfTrade})
+					OrderID: maker.ID, Side: maker.Side, Price: maker.Price, Quantity: maker.Remaining,
+					CancelReason: CancelSelfTrade})
 
 				node = nextNode
 				continue
@@ -96,8 +98,7 @@ func (b *Book) matchLoop(o *Order, seq *seqCounter) []Event {
 			maker.Remaining -= quantity
 			best.volume -= quantity
 
-			events = append(events, Event{
-				Type: EventTraded, Seq: seq.next(),
+			events = append(events, Event{Type: EventTraded, Seq: seq.next(),
 				OrderID: o.ID, MakerOrderID: maker.ID, Side: o.Side, Price: maker.Price, Quantity: quantity,
 			})
 

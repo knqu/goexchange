@@ -101,7 +101,7 @@ func TestMatching(t *testing.T) {
 			order: limit(3, 1, Buy, 9950, 100), // agent 1 crosses its own quote
 			want: []Event{
 				{Type: EventAccepted, Seq: 3, OrderID: 3, Side: Buy, Price: 9950, Quantity: 100},
-				{Type: EventCanceled, Seq: 4, OrderID: 1, Price: 9950, Quantity: 100, CancelReason: CancelSelfTrade},
+				{Type: EventCanceled, Seq: 4, OrderID: 1, Side: Sell, Price: 9950, Quantity: 100, CancelReason: CancelSelfTrade},
 				{Type: EventTraded, Seq: 5, OrderID: 3, MakerOrderID: 2, Side: Buy, Price: 9950, Quantity: 100},
 			},
 		},
