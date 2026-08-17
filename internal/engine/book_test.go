@@ -24,12 +24,12 @@ func (bs *bookSide) audit() error {
 				side, i, bs.levels[i-1].price, lvl.price)
 		}
 
-		// invariant: cached byPrice agrees with the slice
+		// invariant: cached bookSide.byPrice agrees with bookSide.levels
 		if bs.byPrice[lvl.price] != lvl {
 			return fmt.Errorf("%s: byPrice[%d] does not point at the level in the slice", side, lvl.price)
 		}
 
-		// invariant: cached volume agrees with the sum of Remaining across level.orders
+		// invariant: cached level.volume agrees with the sum of Remaining across level.orders
 		var sum int64
 		for node := lvl.orders.Front(); node != nil; node = node.Next() {
 			o := node.Value.(*Order)
@@ -44,7 +44,7 @@ func (bs *bookSide) audit() error {
 		}
 	}
 
-	// invariant: byPrice and levels slice agree on count
+	// invariant: bookSide.byPrice and bookSide.levels agree on count
 	if len(bs.byPrice) != len(bs.levels) {
 		return fmt.Errorf("%s: byPrice has %d entries, slice has %d levels", side, len(bs.byPrice), len(bs.levels))
 	}
@@ -68,14 +68,11 @@ func (b *Book) audit() error {
 		}
 	}
 
-	// invariant: every byID ref resides where it claims
+	// invariant: every restingRef in Book.byID resides where it claims
 	for id, ref := range b.byID {
-		// ref.elem points at the order in the level's linked list
 		if ref.elem.Value.(*Order) != ref.order {
 			return fmt.Errorf("byID[%d]: elem does not hold the ref's order", id)
 		}
-
-		// ref.level is consistent with the side's byPrice map
 		if ref.level != ref.side.byPrice[ref.order.Price] {
 			return fmt.Errorf("byID[%d]: ref.level is not the live level at price %d", id, ref.order.Price)
 		}
@@ -88,7 +85,7 @@ func (b *Book) audit() error {
 
 // restOrder constructs an order ready to be rested in the book.
 func restOrder(id OrderID, s Side, price, quantity, remaining int64) Order {
-	return Order{ID: id, AgentID: 0, // AgentID can be 0 because structural tests bypass applySubmit's validation
+	return Order{ID: id, AgentID: 0, // AgentID can be 0 because structural tests bypass match-time validation
 		Side: s, Type: Limit, TIF: Day,
 		Price: price, Quantity: quantity, Remaining: remaining}
 }
@@ -97,7 +94,7 @@ func restOrder(id OrderID, s Side, price, quantity, remaining int64) Order {
 func restAll(t *testing.T, b *Book, orders []Order) {
 	t.Helper()
 
-	for i := range orders { // do not use `for _, o := range orders` (creates a copy)
+	for i := range orders { // don't iterate over values, which creates a copy
 		b.rest(&orders[i])
 		if err := b.audit(); err != nil {
 			t.Fatalf("invariants broken after resting order %d: %v", orders[i].ID, err)
@@ -162,7 +159,7 @@ func TestRestEnforcesTimePriority(t *testing.T) {
 }
 
 // TestRestDecorrelatedRemaining rests orders whose Remaining differs from Quantity.
-// Guards against rest() accumulating the wrong field into level.volume.
+// Guards against the book accumulating the wrong field into level.volume on every rest.
 func TestRestDecorrelatedRemaining(t *testing.T) {
 	b := NewBook()
 
@@ -308,7 +305,7 @@ func TestCancelPartiallyFilled(t *testing.T) {
 	}
 }
 
-// TestLevelRebirth empties a price level via cancel (reaping it), then rests a new order at the same price.
+// TestLevelRebirth empties a price level via Book.cancel(), reaping it, then rests a new order at the same price.
 func TestLevelRebirth(t *testing.T) {
 	b := NewBook()
 
@@ -334,7 +331,7 @@ func TestLevelRebirth(t *testing.T) {
 
 // --- api tests: check data correctness ---
 
-// TestBestBidAsk verifies that BestBid and BestAsk return the best prices and correct emptiness check result.
+// TestBestBidAsk verifies that Book.BestBid() and Book.BestAsk() return the best prices and handle emptiness correctly.
 func TestBestBidAsk(t *testing.T) {
 	t.Run("empty_book_reports_no_prices", func(t *testing.T) {
 		b := NewBook()
@@ -369,7 +366,7 @@ func TestBestBidAsk(t *testing.T) {
 	})
 }
 
-// TestDepth verifies that Depth returns the correct []PriceLevel holding the best n levels of each side.
+// TestDepth verifies that Book.Depth() returns the correct []PriceLevel holding the best n levels of each side.
 func TestDepth(t *testing.T) {
 	cases := []struct {
 		name     string

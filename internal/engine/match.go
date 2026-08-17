@@ -101,7 +101,7 @@ func (b *Book) matchLoop(o *Order, seq *seqCounter) []Event {
 				OrderID: o.ID, MakerOrderID: maker.ID, Side: o.Side, Price: maker.Price, Quantity: quantity,
 			})
 
-			nextNode := node.Next() // we need to keep a reference to `node` to be able to delete it
+			nextNode := node.Next() // we need to keep a reference to node to be able to delete it
 			if maker.Remaining == 0 {
 				best.orders.Remove(node)
 				delete(b.byID, maker.ID)

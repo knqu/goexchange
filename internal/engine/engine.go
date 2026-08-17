@@ -23,7 +23,6 @@ type Engine struct {
 	events chan<- []Event // not owned by the engine; restrict to send-only
 	seq    seqCounter
 	halted bool
-	done   chan struct{} // closed when Run exits; used to wait for engine shutdown
 }
 
 // NewEngine initializes an Engine with a new book and commands buffer.
@@ -33,14 +32,12 @@ func NewEngine(symbol string, buf int, events chan<- []Event) *Engine {
 		book:   NewBook(),
 		cmds:   make(chan Command, buf),
 		events: events,
-		done:   make(chan struct{}), // empty; open means engine is running, closed means events is safe to close
 	}
 }
 
 // Run is the single-writer command input loop for the book.
 // The gateway must stop accepting commands before stopping the engine (otherwise the drain will never complete).
 func (e *Engine) Run(ctx context.Context) {
-	defer close(e.done)
 	for {
 		select {
 		case cmd := <-e.cmds:
@@ -82,9 +79,4 @@ func (e *Engine) handle(cmd Command) {
 // Cmds exposes the inbound commands channel as send-only for callers.
 func (e *Engine) Cmds() chan<- Command {
 	return e.cmds
-}
-
-// Done is closed when Run has fully exited; consumers should wait on this to prevent a send-on-closed-channel panic.
-func (e *Engine) Done() <-chan struct{} {
-	return e.done
 }

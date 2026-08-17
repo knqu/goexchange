@@ -22,7 +22,7 @@ func market(id OrderID, agent AgentID, s Side, quantity int64) Order {
 		Quantity: quantity}
 }
 
-// submit runs one order through Apply and fails the test if the book's invariants break afterward.
+// submit runs one order through Book.Apply() and fails the test if the book's invariants break afterward.
 func submit(t *testing.T, b *Book, seq *seqCounter, o Order) []Event {
 	t.Helper()
 
@@ -40,7 +40,7 @@ func submit(t *testing.T, b *Book, seq *seqCounter, o Order) []Event {
 func TestMatching(t *testing.T) {
 	cases := []struct {
 		name  string
-		setup []Order // rested via Apply
+		setup []Order // rested via Book.Apply()
 		order Order   // order under test
 		want  []Event // complete expected event slice for order only
 	}{

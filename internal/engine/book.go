@@ -13,7 +13,7 @@ import (
 type level struct {
 	price  int64
 	orders *list.List
-	volume int64 // cached sum of Remaining across Orders
+	volume int64 // cached sum of Remaining across orders
 }
 
 func newLevel(price int64) *level {
@@ -128,7 +128,7 @@ func (b *Book) sideFor(s Side) *bookSide {
 }
 
 // rest places an order into the book.
-// Caller guarantees the order does not cross the opposite side and that o.ID is not already resting.
+// Caller guarantees the order does not cross the opposite side and that a same-ID order is not already resting.
 func (b *Book) rest(o *Order) {
 	bs := b.sideFor(o.Side)
 	lvl := bs.getOrCreateLevel(o.Price)
@@ -137,8 +137,7 @@ func (b *Book) rest(o *Order) {
 	b.byID[o.ID] = &restingRef{order: o, elem: elem, side: bs, level: lvl}
 }
 
-// cancel removes a resting order, returning false if the ID isn't resting
-// (already filled, already cancelled, never existed).
+// cancel removes a resting order, returning false if the ID isn't resting (already filled/cancelled or never existed).
 func (b *Book) cancel(id OrderID) (*Order, bool) {
 	ref, exists := b.byID[id]
 	if !exists {
