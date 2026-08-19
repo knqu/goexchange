@@ -9,18 +9,22 @@ import (
 	"github.com/knqu/goexchange/internal/engine"
 )
 
+// --- journal data structures ---
+
 // record is a single journal entry, consisting of a sequence number and the command that was executed.
 type record struct {
 	Seq uint64         `json:"seq"`
 	Cmd engine.Command `json:"cmd"`
 }
 
+// --- journal writer ---
+
 // Writer appends command records serialized as JSON to a journal file.
 type Writer struct {
-	file *os.File
-	bw   *bufio.Writer // buffer bytes in memory instead of immediately writing every record to the disk
-	enc  *json.Encoder // encode go values as json bytes
-	seq  uint64
+	file    *os.File
+	bw      *bufio.Writer // buffer bytes in memory instead of immediately writing every record to the disk
+	encoder *json.Encoder // encode go values as json bytes
+	seq     uint64
 }
 
 // NewWriter opens a journal file for appending, creating it if it doesn't exist, and returns a Writer.
@@ -31,16 +35,16 @@ func NewWriter(path string) (*Writer, error) {
 	}
 
 	bw := bufio.NewWriter(file)
-	enc := json.NewEncoder(bw)
+	encoder := json.NewEncoder(bw)
 
-	return &Writer{file: file, bw: bw, enc: enc}, nil
+	return &Writer{file: file, bw: bw, encoder: encoder}, nil
 }
 
 // Append writes a new record to the journal file, with a newline automatically added by the encoder.
 func (w *Writer) Append(cmd engine.Command) error {
 	w.seq++
 
-	if err := w.enc.Encode(record{Seq: w.seq, Cmd: cmd}); err != nil {
+	if err := w.encoder.Encode(record{Seq: w.seq, Cmd: cmd}); err != nil {
 		return fmt.Errorf("journal append: %w", err)
 	}
 
@@ -61,4 +65,34 @@ func (w *Writer) Close() error {
 		return err
 	}
 	return w.file.Close()
+}
+
+// --- journal reader ---
+
+// Replay streams every journaled command in order into fn.
+func Replay(path string, fn func(engine.Command) error) error {
+	file, err := os.Open(path)
+	if err != nil {
+		return fmt.Errorf("opening journal for replay: %w", err)
+	}
+	defer file.Close()
+
+	scanner := bufio.NewScanner(file)
+	scanner.Buffer(make([]byte, 0, 64*1024), 1024*1024) // lift scanner's default per-line ceiling to allow long lines
+	line := 0
+
+	for scanner.Scan() {
+		line++
+
+		var rec record
+		if err := json.Unmarshal(scanner.Bytes(), &rec); err != nil {
+			return fmt.Errorf("journal line %d corrupt: %w", line, err)
+		}
+
+		if err := fn(rec.Cmd); err != nil {
+			return fmt.Errorf("replaying line %d: %w", line, err)
+		}
+	}
+
+	return scanner.Err()
 }
