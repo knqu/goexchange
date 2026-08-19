@@ -13,7 +13,7 @@ func (s *seqCounter) next() uint64 {
 	return s.n
 }
 
-// --- command sequencing logic ---
+// --- engine data structures ---
 
 // Engine serializes all book access through a single goroutine.
 type Engine struct {
@@ -34,6 +34,8 @@ func NewEngine(symbol string, buf int, events chan<- []Event) *Engine {
 		events: events,
 	}
 }
+
+// --- command sequencing logic ---
 
 // Run is the single-writer command input loop for the book.
 // The gateway must stop accepting commands before stopping the engine (otherwise the drain will never complete).
@@ -76,7 +78,15 @@ func (e *Engine) handle(cmd Command) {
 	}
 }
 
+// --- public helpers ---
+
 // Cmds exposes the inbound commands channel as send-only for callers.
 func (e *Engine) Cmds() chan<- Command {
 	return e.cmds
+}
+
+// StateHash returns a deterministic hash of the book's resting state.
+// Two books with identical resting orders (prices, FIFO order, and remaining quantities) will produce the same hash.
+func (e *Engine) StateHash() uint64 {
+	return e.book.StateHash()
 }

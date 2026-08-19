@@ -142,7 +142,7 @@ func TestFOKRejectionLeavesBookUntouched(t *testing.T) {
 
 // TestBookInvariantsUnderRandomCommands runs a sequence of random commands, checking the book's invariants after each.
 func TestBookInvariantsUnderRandomCommands(t *testing.T) {
-	const nCommands = 1000
+	const nCommands = 10_000
 	rng := rand.New(rand.NewSource(25)) // fixed seed guarantees reproducibility
 
 	b := NewBook()
