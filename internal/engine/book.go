@@ -2,6 +2,8 @@ package engine
 
 import (
 	"container/list"
+	"encoding/binary"
+	"hash/fnv"
 	"slices"
 	"sort"
 )
@@ -175,4 +177,34 @@ func (b *Book) BestAsk() (int64, bool) {
 // Results are never overwritten after being returned; safe to retain.
 func (b *Book) Depth(n int) (bids, asks []PriceLevel) {
 	return b.bids.topN(n), b.asks.topN(n)
+}
+
+// StateHash returns a deterministic hash of the book's resting state.
+// Two books with identical resting orders (prices, FIFO order, and remaining quantities) will produce the same hash.
+func (b *Book) StateHash() uint64 {
+	hash := fnv.New64a()
+
+	var buf [8]byte
+	writeUint64 := func(value uint64) {
+		binary.BigEndian.PutUint64(buf[:], value)
+		hash.Write(buf[:])
+	}
+
+	for _, bs := range []*bookSide{b.bids, b.asks} {
+		for _, lvl := range bs.levels {
+			for node := lvl.orders.Front(); node != nil; node = node.Next() {
+				o := node.Value.(*Order)
+				writeUint64(uint64(o.ID))
+				writeUint64(uint64(o.AgentID))
+				// Side is already encoded by position (bids walked first, then asks)
+				// Type must be Limit and TIF must be Day if an order is resting in the book
+				writeUint64(uint64(o.Price))
+				writeUint64(uint64(o.Quantity))
+				writeUint64(uint64(o.Remaining))
+				// Seq is already encoded by position within level (FIFO)
+			}
+		}
+	}
+
+	return hash.Sum64()
 }
