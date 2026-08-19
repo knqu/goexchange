@@ -79,6 +79,7 @@ func Replay(path string, fn func(engine.Command) error) error {
 
 	scanner := bufio.NewScanner(file)
 	scanner.Buffer(make([]byte, 0, 64*1024), 1024*1024) // lift scanner's default per-line ceiling to allow long lines
+	var lastSeq uint64
 	line := 0
 
 	for scanner.Scan() {
@@ -88,6 +89,11 @@ func Replay(path string, fn func(engine.Command) error) error {
 		if err := json.Unmarshal(scanner.Bytes(), &rec); err != nil {
 			return fmt.Errorf("journal line %d corrupt: %w", line, err)
 		}
+
+		if line > 1 && rec.Seq != lastSeq+1 {
+			return fmt.Errorf("journal line %d: seq %d follows %d (expected %d)", line, rec.Seq, lastSeq, lastSeq+1)
+		}
+		lastSeq = rec.Seq
 
 		if err := fn(rec.Cmd); err != nil {
 			return fmt.Errorf("replaying line %d: %w", line, err)
