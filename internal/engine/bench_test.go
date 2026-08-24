@@ -93,6 +93,10 @@ func BenchmarkEngine(b *testing.B) {
 
 // TestLatencyDistribution measures the latency distribution of the the full engine loop, including p50, p99, and p99.9.
 func TestLatencyDistribution(t *testing.T) {
+	if testing.Short() {
+		t.Skip("latency measurement is slow")
+	}
+
 	const n = 1_000_000
 
 	events := make(chan []Event, 4096)
