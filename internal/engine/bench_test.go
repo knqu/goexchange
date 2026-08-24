@@ -89,16 +89,25 @@ func BenchmarkEngine(b *testing.B) {
 	b.ReportMetric(opsPerSec, "orders/sec")
 }
 
-// --- latency benchmarks ---
+// --- latency tests ---
 
-// TestLatencyDistribution measures the latency distribution of the the full engine loop, including p50, p99, and p99.9.
+// TestLatencyDistribution measures the latency of the full engine loop at saturation and at half-load.
 func TestLatencyDistribution(t *testing.T) {
 	if testing.Short() {
-		t.Skip("latency measurement is slow")
+		t.Skip("latency measurement; run explicitly")
 	}
 
-	const n = 1_000_000
+	t.Run("saturation", func(t *testing.T) {
+		runLatency(t, 1_000_000, 0)
+	})
 
+	t.Run("half_load", func(t *testing.T) {
+		runLatency(t, 1_000_000, 500_000)
+	})
+}
+
+// runLatency sends n commands through a live engine at rate commands per second, reporting the latency distribution.
+func runLatency(t *testing.T, n int, rate float64) {
 	events := make(chan []Event, 4096)
 	engine := NewEngine("ACME", 4096, events)
 	var engineDone sync.WaitGroup
@@ -127,10 +136,22 @@ func TestLatencyDistribution(t *testing.T) {
 		close(drained)
 	}()
 
+	var interval time.Duration
+	if rate > 0 {
+		interval = time.Duration(float64(time.Second) / rate)
+	}
+
 	cmds := buildAlternatingCommands(n)
+	next := time.Now()
 
 	// send all commands to the engine, recording each operation's send time
 	for i := 0; i < n; i++ {
+		if rate > 0 {
+			next = next.Add(interval)
+			for time.Now().Before(next) {
+				// spin; supports microsecond-precision pacing unlike coarser time.Sleep
+			}
+		}
 		sendTimes[cmds[i].Order.ID] = time.Now()
 		engine.Cmds() <- cmds[i]
 	}
