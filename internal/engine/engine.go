@@ -80,6 +80,14 @@ func (e *Engine) handle(cmd Command) {
 
 // --- public helpers ---
 
+// Restore applies commands synchronously to the book to rebuild state from a journal.
+// It must be called before Run(), as concurrent use with the engine running will result in a data race.
+func (e *Engine) Restore(cmds []Command) {
+	for _, cmd := range cmds {
+		e.book.Apply(cmd, &e.seq)
+	}
+}
+
 // Cmds exposes the inbound commands channel as send-only for callers.
 func (e *Engine) Cmds() chan<- Command {
 	return e.cmds

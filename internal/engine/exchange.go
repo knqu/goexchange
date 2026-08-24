@@ -23,6 +23,19 @@ func NewExchange(symbols []string, buf int, events chan<- []Event) *Exchange {
 	return &Exchange{engines: engines, done: make(chan struct{})}
 }
 
+// Restore applies commands synchronously to the book to rebuild state from a journal.
+// It must be called before Run(), as concurrent use with the engine running will result in a data race.
+func (x *Exchange) Restore(symbol string, cmds []Command) error {
+	e, ok := x.engines[symbol]
+	if !ok {
+		return fmt.Errorf("unknown symbol %q", symbol)
+	}
+
+	e.Restore(cmds)
+
+	return nil
+}
+
 // Run spawns one goroutine per symbol to run each Engine, and returns immediately.
 func (x *Exchange) Run(ctx context.Context) {
 	var wg sync.WaitGroup
