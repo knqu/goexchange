@@ -93,6 +93,12 @@ func (e *Engine) Cmds() chan<- Command {
 	return e.cmds
 }
 
+// Depth returns the top-n bids and asks in the book as an independent snapshot.
+// Results are never overwritten after being returned; safe to retain.
+func (e *Engine) Depth(n int) (bids, asks []PriceLevel) {
+	return e.book.Depth(n)
+}
+
 // StateHash returns a deterministic hash of the book's resting state.
 // Two books with identical resting orders (prices, FIFO order, and remaining quantities) will produce the same hash.
 func (e *Engine) StateHash() uint64 {
