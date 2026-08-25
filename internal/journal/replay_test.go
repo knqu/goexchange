@@ -56,7 +56,7 @@ func runAndJournal(t *testing.T, path string, cmds []engine.Command) uint64 {
 		close(drained)
 	}()
 
-	// journal each command, then submit it
+	// journal each command pre-dispatch (for test simplicity), then submit it
 	for _, cmd := range cmds {
 		if err := writer.Append(cmd); err != nil {
 			t.Fatal(err)
@@ -68,7 +68,7 @@ func runAndJournal(t *testing.T, path string, cmds []engine.Command) uint64 {
 		t.Fatal(err)
 	}
 
-	// must ensure every command is applied (wait for graceful shutdown) before reading book state
+	// every command must be applied (via graceful shutdown) before reading book state
 	cancel()
 	engineDone.Wait()
 	close(events)
@@ -77,47 +77,28 @@ func runAndJournal(t *testing.T, path string, cmds []engine.Command) uint64 {
 	return eng.StateHash()
 }
 
-// replayIntoEngine builds a fresh engine and replays the journal into it, returning the resulting state hash.
+// replayIntoEngine builds a fresh engine, replaying the journal to restore it and returning the resulting state hash.
 func replayIntoEngine(t *testing.T, path string) uint64 {
 	t.Helper()
 
 	events := make(chan []engine.Event, 4096)
 	eng := engine.NewEngine("ACME", 4096, events)
-	var engineDone sync.WaitGroup
 
-	ctx, cancel := context.WithCancel(context.Background())
-	engineDone.Add(1)
-	go func() {
-		defer engineDone.Done()
-		eng.Run(ctx)
-	}()
+	var cmds []engine.Command
 
-	drained := make(chan struct{})
-	go func() {
-		for range events {
-			// drain events (until closed) so the engine never blocks on its output channel
-		}
-		close(drained)
-	}()
-
-	// replay the journal, sending commands into the engine
 	if err := Replay(path, func(cmd engine.Command) error {
-		eng.Cmds() <- cmd
+		cmds = append(cmds, cmd)
 		return nil
 	}); err != nil {
 		t.Fatal(err)
 	}
 
-	// must ensure every command is applied (wait for graceful shutdown) before reading book state
-	cancel()
-	engineDone.Wait()
-	close(events)
-	<-drained
+	eng.Restore(cmds)
 
 	return eng.StateHash()
 }
 
-// buildCommands generates a deterministic sequence of submits and cancels over a small agent pool and tight price band.
+// buildCommands generates a deterministic sequence of submits/cancels over a small agent pool and tight price band.
 func buildCommands(rng *rand.Rand, n int) []engine.Command {
 	cmds := make([]engine.Command, 0, n)
 
