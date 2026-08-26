@@ -29,11 +29,24 @@ type Writer struct {
 
 // NewWriter opens a journal file for appending and returns a Writer (with seq initialized or restored from existing).
 func NewWriter(path string) (*Writer, error) {
-	seq, err := lastSeq(path)
+	seq, offset, err := lastGood(path)
 	if err != nil {
 		return nil, err
 	}
 
+	// repair a torn tail (if the journal exists) by truncating to the end of the last known-good record
+	// open a separate RDWR handle (because Windows can't truncate through an O_APPEND handle)
+	if file, err := os.OpenFile(path, os.O_RDWR, 0o644); err == nil {
+		if err := file.Truncate(offset); err != nil {
+			file.Close()
+			return nil, fmt.Errorf("truncating torn tail: %w", err)
+		}
+		file.Close()
+	} else if !os.IsNotExist(err) {
+		return nil, fmt.Errorf("opening journal to repair: %w", err)
+	}
+
+	// actually open the journal for appending
 	file, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
 	if err != nil {
 		return nil, fmt.Errorf("opening journal %s: %w", path, err)
@@ -45,33 +58,43 @@ func NewWriter(path string) (*Writer, error) {
 	return &Writer{file: file, bw: bw, encoder: encoder, seq: seq}, nil
 }
 
-// lastSeq returns the seq of the final record in an existing journal, or 0 if the file does not exist or is empty.
-func lastSeq(path string) (uint64, error) {
+// lastGood scans an existing journal for the seq of the last valid record and the byte offset just past it.
+// A torn final line (caused by a mid-append crash) is tolerated; its offset is excluded to be truncated by the caller.
+// A torn line mid-journal (indicated by a bad line with a valid line after it) indicates real corruption and errors.
+func lastGood(path string) (seq uint64, offset int64, err error) {
 	file, err := os.Open(path)
 	if err != nil {
 		if os.IsNotExist(err) {
-			return 0, nil // new journal; start from 0
+			return 0, 0, nil // new journal: seq and offset both start at 0
 		}
-		return 0, fmt.Errorf("reading journal for seq: %w", err)
+		return 0, 0, fmt.Errorf("reading journal: %w", err)
 	}
 	defer file.Close()
 
 	scanner := bufio.NewScanner(file)
 	scanner.Buffer(make([]byte, 0, 64*1024), 1024*1024)
-	var seq uint64
 
 	for scanner.Scan() {
+		lineBytes := scanner.Bytes()
 		var rec record
-		if err := json.Unmarshal(scanner.Bytes(), &rec); err != nil {
-			return 0, fmt.Errorf("parsing journal record: %w", err)
+
+		if err := json.Unmarshal(lineBytes, &rec); err != nil {
+			if scanner.Scan() {
+				// a valid line exists after a corrupted line, meaning that the corruption was mid-file
+				return 0, 0, fmt.Errorf("mid-file corruption: %w", err)
+			}
+			break // stop at torn final line; offset stays at last good record
 		}
+
 		seq = rec.Seq
-	}
-	if err := scanner.Err(); err != nil {
-		return 0, err
+		offset += int64(len(lineBytes)) + 1 // +1 to account for stripped newline
 	}
 
-	return seq, nil // returns 0 if file exists but is empty
+	if err := scanner.Err(); err != nil {
+		return 0, 0, err
+	}
+
+	return seq, offset, nil
 }
 
 // Append writes a new record to the journal file, with a newline automatically added by the encoder.
@@ -121,7 +144,12 @@ func Replay(path string, fn func(engine.Command) error) error {
 
 		var rec record
 		if err := json.Unmarshal(scanner.Bytes(), &rec); err != nil {
-			return fmt.Errorf("journal line %d corrupt: %w", line, err)
+			if scanner.Scan() {
+				// a valid line exists after a corrupted line, meaning that the corruption was mid-file
+				return fmt.Errorf("journal line %d corrupt (mid-file): %w", line, err)
+			}
+			// otherwise, only the final line is corrupted, likely caused by the process being force killed
+			return scanner.Err()
 		}
 
 		if line > 1 && rec.Seq != lastSeq+1 {
