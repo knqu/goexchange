@@ -69,6 +69,22 @@ func (x *Exchange) Dispatch(symbol string, cmd Command) error {
 	return nil
 }
 
+// TryDispatch attempts a non-blocking send to the engine registered to the given symbol.
+// It returns accepted set to false with no error if the engine's queue is full, or an error if the symbol is unknown.
+func (x *Exchange) TryDispatch(symbol string, cmd Command) (accepted bool, err error) {
+	e, ok := x.engines[symbol]
+	if !ok {
+		return false, fmt.Errorf("unknown symbol %q", symbol)
+	}
+
+	select {
+	case e.Cmds() <- cmd:
+		return true, nil
+	default:
+		return false, nil // queue is full
+	}
+}
+
 // Done is closed when the exchange has finished shutting down; wait on this before closing the events channel.
 func (x *Exchange) Done() <-chan struct{} {
 	return x.done
