@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"strconv"
 	"sync/atomic"
 
 	"github.com/knqu/goexchange/internal/engine"
@@ -20,6 +21,13 @@ type orderRequest struct {
 	TIF      string `json:"tif"`
 	Price    int64  `json:"price"`
 	Quantity int64  `json:"quantity"`
+}
+
+// orderCancelRequest is constructed from the order cancellation request path and query parameters.
+type orderCancelRequest struct {
+	AgentID uint64
+	Symbol  string
+	OrderID uint64
 }
 
 // Gateway exposes an exchange via HTTP endpoints.
@@ -42,6 +50,7 @@ func NewGateway(exchange *engine.Exchange) *Gateway {
 func (g *Gateway) Serve(addr string) error {
 	mux := http.NewServeMux()
 	mux.HandleFunc("POST /orders", g.handleNewOrder)
+	mux.HandleFunc("DELETE /orders/{id}", g.handleCancelOrder)
 	return http.ListenAndServe(addr, mux)
 }
 
@@ -75,6 +84,41 @@ func (g *Gateway) handleNewOrder(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusAccepted)
 	json.NewEncoder(w).Encode(map[string]any{"orderId": cmd.Order.ID})
+}
+
+// handleCancelOrder processes an order cancellation request, validates it, and dispatches it to the exchange.
+func (g *Gateway) handleCancelOrder(w http.ResponseWriter, r *http.Request) {
+	orderID, err := strconv.ParseUint(r.PathValue("id"), 10, 64)
+	if err != nil {
+		http.Error(w, "invalid order id in path", http.StatusBadRequest)
+		return
+	}
+
+	symbol := r.URL.Query().Get("symbol")
+
+	agentID, err := strconv.ParseUint(r.URL.Query().Get("agent_id"), 10, 64)
+	if err != nil {
+		http.Error(w, "invalid or missing agent_id", http.StatusBadRequest)
+		return
+	}
+
+	cmd, err := g.parseCancelOrder(orderCancelRequest{AgentID: agentID, Symbol: symbol, OrderID: orderID})
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusUnprocessableEntity)
+		return
+	}
+
+	accepted, err := g.exchange.TryDispatch(symbol, cmd)
+	if err != nil {
+		http.Error(w, "unknown symbol", http.StatusNotFound)
+		return
+	}
+	if !accepted {
+		http.Error(w, "engine at capacity, retry", http.StatusServiceUnavailable)
+		return
+	}
+
+	w.WriteHeader(http.StatusAccepted)
 }
 
 // --- parsing helpers ---
@@ -122,6 +166,21 @@ func (g *Gateway) parseOrder(req orderRequest) (engine.Command, error) {
 			Price:    req.Price,
 			Quantity: req.Quantity,
 		},
+	}, nil
+}
+
+func (g *Gateway) parseCancelOrder(req orderCancelRequest) (engine.Command, error) {
+	if req.AgentID == 0 {
+		return engine.Command{}, fmt.Errorf("agent id must be non-zero")
+	}
+
+	if req.OrderID == 0 {
+		return engine.Command{}, fmt.Errorf("order id must be non-zero")
+	}
+
+	return engine.Command{
+		Type:     engine.CmdCancel,
+		CancelID: engine.OrderID(req.OrderID),
 	}, nil
 }
 
