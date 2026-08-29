@@ -51,6 +51,8 @@ func (g *Gateway) Serve(addr string) error {
 	mux := http.NewServeMux()
 	mux.HandleFunc("POST /orders", g.handleNewOrder)
 	mux.HandleFunc("DELETE /orders/{id}", g.handleCancelOrder)
+	mux.HandleFunc("POST /admin/symbols/{symbol}/halt", g.handleHaltTrading)
+	mux.HandleFunc("POST /admin/symbols/{symbol}/resume", g.handleResumeTrading)
 	return http.ListenAndServe(addr, mux)
 }
 
@@ -109,6 +111,38 @@ func (g *Gateway) handleCancelOrder(w http.ResponseWriter, r *http.Request) {
 	}
 
 	accepted, err := g.exchange.TryDispatch(symbol, cmd)
+	if err != nil {
+		http.Error(w, "unknown symbol", http.StatusNotFound)
+		return
+	}
+	if !accepted {
+		http.Error(w, "engine at capacity, retry", http.StatusServiceUnavailable)
+		return
+	}
+
+	w.WriteHeader(http.StatusAccepted)
+}
+
+func (g *Gateway) handleHaltTrading(w http.ResponseWriter, r *http.Request) {
+	symbol := r.PathValue("symbol")
+
+	accepted, err := g.exchange.TryDispatch(symbol, engine.Command{Type: engine.CmdHalt})
+	if err != nil {
+		http.Error(w, "unknown symbol", http.StatusNotFound)
+		return
+	}
+	if !accepted {
+		http.Error(w, "engine at capacity, retry", http.StatusServiceUnavailable)
+		return
+	}
+
+	w.WriteHeader(http.StatusAccepted)
+}
+
+func (g *Gateway) handleResumeTrading(w http.ResponseWriter, r *http.Request) {
+	symbol := r.PathValue("symbol")
+
+	accepted, err := g.exchange.TryDispatch(symbol, engine.Command{Type: engine.CmdResume})
 	if err != nil {
 		http.Error(w, "unknown symbol", http.StatusNotFound)
 		return
