@@ -8,10 +8,10 @@ import (
 
 func TestConcurrentSubmitters(t *testing.T) {
 	events := make(chan []Event, 4096)
-	engine := NewEngine("ACME", 1024, events)
+	ctx, cancel := context.WithCancel(context.Background())
+	engine := NewEngine("ACME", 1024, events, nil, cancel)
 	var engineDone sync.WaitGroup
 
-	ctx, cancel := context.WithCancel(context.Background())
 	engineDone.Add(1)
 	go func() {
 		defer engineDone.Done()
@@ -62,7 +62,8 @@ func TestGracefulShutdownDrainsPendingCommands(t *testing.T) {
 	const n = 500 // number of CmdSubmits
 
 	events := make(chan []Event, 4096)
-	engine := NewEngine("ACME", n, events) // cmds buffer size must be >= n: all sends must land without blocking
+	ctx, cancel := context.WithCancel(context.Background())
+	engine := NewEngine("ACME", n, events, nil, cancel) // buf must be >= n: commands must land without blocking
 	var engineDone sync.WaitGroup
 
 	// count accepted orders in the event stream to record how many commands the engine actually handled
@@ -90,7 +91,6 @@ func TestGracefulShutdownDrainsPendingCommands(t *testing.T) {
 	}
 
 	// start the engine with a backlog of n commands already waiting
-	ctx, cancel := context.WithCancel(context.Background())
 	engineDone.Add(1)
 	go func() {
 		defer engineDone.Done()

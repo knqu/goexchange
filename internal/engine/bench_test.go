@@ -50,10 +50,10 @@ func BenchmarkMatching(b *testing.B) {
 // BenchmarkEngine measures the full engine loop, including channel, goroutine, and event drainage overhead.
 func BenchmarkEngine(b *testing.B) {
 	events := make(chan []Event, 4096)
-	engine := NewEngine("ACME", 4096, events)
+	ctx, cancel := context.WithCancel(context.Background())
+	engine := NewEngine("ACME", 4096, events, nil, cancel)
 	var engineDone sync.WaitGroup
 
-	ctx, cancel := context.WithCancel(context.Background())
 	engineDone.Add(1)
 	go func() {
 		defer engineDone.Done()
@@ -109,10 +109,10 @@ func TestLatencyDistribution(t *testing.T) {
 // runLatency sends n commands through a live engine at rate commands per second, reporting the latency distribution.
 func runLatency(t *testing.T, n int, rate float64) {
 	events := make(chan []Event, 4096)
-	engine := NewEngine("ACME", 4096, events)
+	ctx, cancel := context.WithCancel(context.Background())
+	engine := NewEngine("ACME", 4096, events, nil, cancel)
 	var engineDone sync.WaitGroup
 
-	ctx, cancel := context.WithCancel(context.Background())
 	engineDone.Add(1)
 	go func() {
 		defer engineDone.Done()

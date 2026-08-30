@@ -38,10 +38,10 @@ func runAndJournal(t *testing.T, path string, cmds []engine.Command) uint64 {
 	}
 
 	events := make(chan []engine.Event, 4096)
-	eng := engine.NewEngine("ACME", len(cmds), events)
+	ctx, cancel := context.WithCancel(context.Background())
+	eng := engine.NewEngine("ACME", len(cmds), events, writer, cancel)
 	var engineDone sync.WaitGroup
 
-	ctx, cancel := context.WithCancel(context.Background())
 	engineDone.Add(1)
 	go func() {
 		defer engineDone.Done()
@@ -56,23 +56,18 @@ func runAndJournal(t *testing.T, path string, cmds []engine.Command) uint64 {
 		close(drained)
 	}()
 
-	// journal each command pre-dispatch (for test simplicity), then submit it
 	for _, cmd := range cmds {
-		if err := writer.Append(cmd); err != nil {
-			t.Fatal(err)
-		}
 		eng.Cmds() <- cmd
 	}
 
-	if err := writer.Close(); err != nil {
-		t.Fatal(err)
-	}
-
-	// every command must be applied (via graceful shutdown) before reading book state
 	cancel()
 	engineDone.Wait()
 	close(events)
 	<-drained
+
+	if err := writer.Close(); err != nil {
+		t.Fatal(err)
+	}
 
 	return eng.StateHash()
 }
@@ -82,7 +77,7 @@ func replayIntoEngine(t *testing.T, path string) uint64 {
 	t.Helper()
 
 	events := make(chan []engine.Event, 4096)
-	eng := engine.NewEngine("ACME", 4096, events)
+	eng := engine.NewEngine("ACME", 4096, events, nil, nil)
 
 	var cmds []engine.Command
 

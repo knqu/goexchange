@@ -103,6 +103,7 @@ const (
 	RejectOrderNotFound
 	RejectFOKInsufficient
 	RejectHalted
+	RejectJournalFailed
 )
 
 type Event struct {

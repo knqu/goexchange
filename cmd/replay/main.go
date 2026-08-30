@@ -23,7 +23,7 @@ func main() {
 		log.Fatalf("replay failed: %v", err)
 	}
 
-	eng := engine.NewEngine("", 0, nil) // symbol doesn't mattter and buf/events are unused (engine never runs)
+	eng := engine.NewEngine("", 0, nil, nil, nil) // configurations don't matter because engine never runs
 	eng.Restore(cmds)
 
 	bids, asks := eng.Depth(*depth)

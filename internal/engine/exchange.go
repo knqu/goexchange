@@ -6,18 +6,19 @@ import (
 	"sync"
 )
 
-// Exchange is a collection of Engines mapped by symbol.
+// Exchange is a collection of engines mapped by symbol.
 type Exchange struct {
 	engines map[string]*Engine
 	done    chan struct{} // empty channel; closed when all engines belonging to the exchange have drained and stopped
 }
 
-// NewExchange initializes an Exchange with a new Engine for each symbol and a shared events channel.
-func NewExchange(symbols []string, buf int, events chan<- []Event) *Exchange {
+// NewExchange initializes an exchange with a new engine for each symbol.
+// Engines share an exchange-wide events output channel and cancel function, but each owns its assigned JournalWriter.
+func NewExchange(symbols []string, buf int, events chan<- []Event, journals map[string]JournalWriter, cancel context.CancelFunc) *Exchange {
 	engines := make(map[string]*Engine, len(symbols))
 
 	for _, symbol := range symbols {
-		engines[symbol] = NewEngine(symbol, buf, events)
+		engines[symbol] = NewEngine(symbol, buf, events, journals[symbol], cancel)
 	}
 
 	return &Exchange{engines: engines, done: make(chan struct{})}

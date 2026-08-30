@@ -9,8 +9,8 @@ import (
 // TestDispatchRoutesToCorrectEngine submits unique orders to two symbols and checks that each landed on the right book.
 func TestDispatchRoutesToCorrectEngine(t *testing.T) {
 	events := make(chan []Event, 4096)
-	exchange := NewExchange([]string{"ACME", "MSFT"}, 64, events)
 	ctx, cancel := context.WithCancel(context.Background())
+	exchange := NewExchange([]string{"ACME", "MSFT"}, 64, events, nil, cancel)
 	exchange.Run(ctx)
 
 	// drain events so engines never block on the shared channel
@@ -64,7 +64,7 @@ func TestDispatchRoutesToCorrectEngine(t *testing.T) {
 // TestDispatchUnknownSymbol verifies dispatching to a nonexistent symbol errors rather than panicking or dropping.
 func TestDispatchUnknownSymbol(t *testing.T) {
 	events := make(chan []Event, 16)
-	exchange := NewExchange([]string{"ACME"}, 64, events)
+	exchange := NewExchange([]string{"ACME"}, 64, events, nil, nil)
 
 	// note: no Exchange.Run() or events drainage logic is needed because dispatch fails before any send
 
@@ -84,8 +84,8 @@ func TestExchangeShutdownIsClean(t *testing.T) {
 	symbols := []string{"ACME", "MSFT", "GOOG"}
 
 	events := make(chan []Event, 4096)
-	exchange := NewExchange(symbols, 1024, events)
 	ctx, cancel := context.WithCancel(context.Background())
+	exchange := NewExchange(symbols, 1024, events, nil, cancel)
 	exchange.Run(ctx)
 
 	var got int64
@@ -130,10 +130,11 @@ func TestExchangeShutdownIsClean(t *testing.T) {
 // Buffers are filled before starting the exchange so a backlog provably exists when cancellation fires.
 func TestExchangeGracefulDrain(t *testing.T) {
 	const perSymbol = 300 // number of CmdSubmits per symbol
-
 	symbols := []string{"ACME", "MSFT"}
+
 	events := make(chan []Event, 8192)
-	exchange := NewExchange(symbols, perSymbol, events) // buffer >= perSymbol: all sends land
+	ctx, cancel := context.WithCancel(context.Background())
+	exchange := NewExchange(symbols, perSymbol, events, nil, cancel) // buffer >= perSymbol: all commands land
 
 	var accepted int64
 	drained := make(chan struct{})
@@ -163,7 +164,6 @@ func TestExchangeGracefulDrain(t *testing.T) {
 	}
 
 	// start the exchange with perSymbol commands already waiting in each engine's backlog
-	ctx, cancel := context.WithCancel(context.Background())
 	exchange.Run(ctx)
 
 	// immediately cancel
