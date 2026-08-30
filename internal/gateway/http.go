@@ -41,9 +41,11 @@ func (g *Gateway) nextOrderID() engine.OrderID {
 	return engine.OrderID(g.prevOrderID.Add(1))
 }
 
-// NewGateway initializes a new Gateway instance that wraps the given exchange.
-func NewGateway(exchange *engine.Exchange) *Gateway {
-	return &Gateway{exchange: exchange}
+// NewGateway initializes a new gateway that wraps the given exchange, updating its internal OrderID counter.
+func NewGateway(exchange *engine.Exchange, lastOrderID uint64) *Gateway {
+	g := &Gateway{exchange: exchange}
+	g.prevOrderID.Store(lastOrderID)
+	return g
 }
 
 // Serve starts the HTTP server on the given address and handles incoming requests.

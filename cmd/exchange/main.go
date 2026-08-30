@@ -39,6 +39,7 @@ func main() {
 
 	restoredCmds := make(map[string][]engine.Command)
 	writers := make(map[string]engine.JournalWriter)
+	var maxOrderID uint64 // track max OrderID across all journals to initialize gateway's OrderID counter
 
 	for _, symbol := range symbols {
 		path := "journals/" + symbol + ".jnl"
@@ -46,6 +47,9 @@ func main() {
 		if _, err := os.Stat(path); err == nil {
 			if err := journal.Replay(path, func(cmd engine.Command) error {
 				restoredCmds[symbol] = append(restoredCmds[symbol], cmd)
+				if cmd.Type == engine.CmdSubmit {
+					maxOrderID = max(uint64(cmd.Order.ID), maxOrderID)
+				}
 				return nil
 			}); err != nil {
 				log.Fatalf("%s - journal replay failed: %v", symbol, err)
@@ -111,7 +115,7 @@ func main() {
 
 	exchange.Run(ctx)
 
-	gateway := gateway.NewGateway(exchange)
+	gateway := gateway.NewGateway(exchange, maxOrderID)
 	go func() {
 		if err := gateway.Serve(address); err != nil && err != http.ErrServerClosed {
 			log.Fatalf("server error: %v", err)
