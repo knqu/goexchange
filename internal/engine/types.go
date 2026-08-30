@@ -127,19 +127,31 @@ const (
 	CmdCancel
 	CmdHalt
 	CmdResume
+	CmdDepth
 )
 
 // Command is an instruction to the engine.
 type Command struct {
-	Type     CmdType
-	Order    Order   // CmdSubmit (passed by value; engine owns its own copy)
-	CancelID OrderID // CmdCancel
+	Type       CmdType
+	Order      Order      // CmdSubmit (passed by value; engine owns its own copy)
+	CancelID   OrderID    // CmdCancel
+	DepthQuery DepthQuery `json:"-"` // CmdDepth (exclude from JSON: never journaled + channels break serialization)
 }
 
-// --- book types ---
+// --- depth types ---
+
+type DepthQuery struct {
+	Depth int
+	Reply chan<- DepthSnapshot // needed because CmdDepth is queued and answered in sequence with trading
+}
 
 // PriceLevel represents one rung of a depth ladder: total resting quantity at a price.
 type PriceLevel struct {
 	Price    int64
 	Quantity int64
+}
+
+type DepthSnapshot struct {
+	Bids []PriceLevel
+	Asks []PriceLevel
 }

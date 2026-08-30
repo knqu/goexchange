@@ -173,10 +173,10 @@ func (b *Book) BestAsk() (int64, bool) {
 	return b.asks.levels[0].price, true
 }
 
-// Depth returns the top-n bids and asks in the book as an independent snapshot.
-// Results are never overwritten after being returned; safe to retain.
-func (b *Book) Depth(n int) (bids, asks []PriceLevel) {
-	return b.bids.topN(n), b.asks.topN(n)
+// Depth returns the book's top-n bids and asks as an independent DepthSnapshot.
+// Results are never overwritten after being returned, so they are safe to retain.
+func (b *Book) Depth(n int) DepthSnapshot {
+	return DepthSnapshot{Bids: b.bids.topN(n), Asks: b.asks.topN(n)}
 }
 
 // StateHash returns a deterministic hash of the book's resting state.

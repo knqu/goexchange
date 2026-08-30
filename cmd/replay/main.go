@@ -10,7 +10,7 @@ import (
 
 func main() {
 	path := flag.String("journal", "exchange.jnl", "path to journal file to inspect")
-	depth := flag.Int("depth", 5, "number of price levels to display per side")
+	levels := flag.Int("depth", 5, "number of price levels to display per side")
 
 	flag.Parse()
 
@@ -26,8 +26,10 @@ func main() {
 	eng := engine.NewEngine("", 0, nil, nil, nil) // configurations don't matter because engine never runs
 	eng.Restore(cmds)
 
-	bids, asks := eng.Depth(*depth)
+	depth := eng.Depth(*levels)
+	bids, asks := depth.Bids, depth.Asks
+
 	log.Printf("journal %s contains %d commands", *path, len(cmds))
-	log.Printf("bids (top %d): %+v", *depth, bids)
-	log.Printf("asks (top %d): %+v", *depth, asks)
+	log.Printf("bids (top %d): %+v", *levels, bids)
+	log.Printf("asks (top %d): %+v", *levels, asks)
 }

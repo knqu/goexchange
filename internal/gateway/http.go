@@ -55,12 +55,12 @@ func (g *Gateway) Serve(addr string) error {
 	mux.HandleFunc("DELETE /orders/{id}", g.handleCancelOrder)
 	mux.HandleFunc("POST /admin/symbols/{symbol}/halt", g.handleHaltTrading)
 	mux.HandleFunc("POST /admin/symbols/{symbol}/resume", g.handleResumeTrading)
+	mux.HandleFunc("GET /books/{symbol}", g.handleDepthQuery)
 	return http.ListenAndServe(addr, mux)
 }
 
 // --- gateway handlers ---
 
-// handleNewOrder processes a new order request, validates it, and dispatches it to the exchange.
 func (g *Gateway) handleNewOrder(w http.ResponseWriter, r *http.Request) {
 	var req orderRequest
 
@@ -90,7 +90,6 @@ func (g *Gateway) handleNewOrder(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(map[string]any{"orderId": cmd.Order.ID})
 }
 
-// handleCancelOrder processes an order cancellation request, validates it, and dispatches it to the exchange.
 func (g *Gateway) handleCancelOrder(w http.ResponseWriter, r *http.Request) {
 	orderID, err := strconv.ParseUint(r.PathValue("id"), 10, 64)
 	if err != nil {
@@ -155,6 +154,37 @@ func (g *Gateway) handleResumeTrading(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.WriteHeader(http.StatusAccepted)
+}
+
+func (g *Gateway) handleDepthQuery(w http.ResponseWriter, r *http.Request) {
+	symbol := r.PathValue("symbol")
+
+	depth, err := strconv.Atoi(r.URL.Query().Get("depth"))
+	if err != nil {
+		http.Error(w, "invalid or missing depth", http.StatusBadRequest)
+		return
+	}
+
+	// depth queries are queued alongside other commands and answered in sequence with live trading
+	reply := make(chan engine.DepthSnapshot, 1) // set capacity to 1 so engine never blocks sending
+
+	accepted, err := g.exchange.TryDispatch(symbol, engine.Command{Type: engine.CmdDepth, DepthQuery: engine.DepthQuery{
+		Depth: depth,
+		Reply: reply,
+	}})
+	if err != nil {
+		http.Error(w, "unknown symbol", http.StatusNotFound)
+		return
+	}
+	if !accepted {
+		http.Error(w, "engine at capacity, retry", http.StatusServiceUnavailable)
+		return
+	}
+
+	depthSnapshot := <-reply
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	json.NewEncoder(w).Encode(depthSnapshot)
 }
 
 // --- parsing helpers ---

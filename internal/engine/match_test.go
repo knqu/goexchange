@@ -131,9 +131,9 @@ func TestFOKRejectionLeavesBookUntouched(t *testing.T) {
 
 	submit(t, b, &seq, limit(1, 1, Sell, 9950, 100))
 
-	_, beforeAsks := b.Depth(10)
+	beforeAsks := b.Depth(10).Asks
 	submit(t, b, &seq, Order{ID: 2, AgentID: 2, Side: Buy, Type: Limit, TIF: FOK, Price: 9950, Quantity: 500})
-	_, afterAsks := b.Depth(10)
+	afterAsks := b.Depth(10).Asks
 
 	if !slices.Equal(beforeAsks, afterAsks) {
 		t.Fatalf("FOK rejection mutated the book: %+v -> %+v", beforeAsks, afterAsks)

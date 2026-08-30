@@ -80,6 +80,9 @@ func (e *Engine) handle(cmd Command) []Event {
 	case CmdResume:
 		e.halted = false
 		return []Event{{Type: EventResumed, Seq: e.seq.next()}}
+	case CmdDepth:
+		cmd.DepthQuery.Reply <- e.book.Depth(cmd.DepthQuery.Depth)
+		return nil
 	default:
 		// any command that adds liquidity (only submit currently) should be rejected on engine halt
 		if e.halted && cmd.Type == CmdSubmit {
@@ -113,9 +116,9 @@ func (e *Engine) Cmds() chan<- Command {
 	return e.cmds
 }
 
-// Depth returns the top-n bids and asks in the book as an independent snapshot.
-// Results are never overwritten after being returned; safe to retain.
-func (e *Engine) Depth(n int) (bids, asks []PriceLevel) {
+// Depth returns the book's top-n bids and asks as an independent DepthSnapshot.
+// Results are never overwritten after being returned, so they are safe to retain.
+func (e *Engine) Depth(n int) DepthSnapshot {
 	return e.book.Depth(n)
 }
 

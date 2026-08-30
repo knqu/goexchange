@@ -424,7 +424,8 @@ func TestDepth(t *testing.T) {
 
 			restAll(t, b, tc.orders)
 
-			gotBids, gotAsks := b.Depth(tc.n)
+			depth := b.Depth(tc.n)
+			gotBids, gotAsks := depth.Bids, depth.Asks
 
 			if !slices.Equal(gotBids, tc.wantBids) {
 				t.Errorf("bids = %+v, want %+v", gotBids, tc.wantBids)

@@ -91,15 +91,13 @@ func (x *Exchange) Done() <-chan struct{} {
 	return x.done
 }
 
-// Depth returns the top-n bids and asks in the book as an independent snapshot, or an error if symbol doesn't exist.
-// Results are never overwritten after being returned; safe to retain.
-func (x *Exchange) Depth(symbol string, n int) (bids, asks []PriceLevel, err error) {
+// Depth returns the book's top-n bids and asks as an independent DepthSnapshot, or an error if symbol doesn't exist.
+// Results are never overwritten after being returned, so they are safe to retain.
+func (x *Exchange) Depth(symbol string, n int) (DepthSnapshot, error) {
 	e, ok := x.engines[symbol]
 	if !ok {
-		return nil, nil, fmt.Errorf("unknown symbol %q", symbol)
+		return DepthSnapshot{}, fmt.Errorf("unknown symbol %q", symbol)
 	}
 
-	bids, asks = e.Depth(n)
-
-	return bids, asks, nil
+	return e.Depth(n), nil
 }

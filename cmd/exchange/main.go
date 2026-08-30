@@ -76,21 +76,21 @@ func main() {
 			log.Fatalf("%s - engine restore failed: %v", symbol, err)
 		}
 
-		bids, asks, err := exchange.Depth(symbol, 1)
+		depth, err := exchange.Depth(symbol, 1)
 		if err != nil {
 			log.Fatalf("%s - depth query failed: %v", symbol, err)
 		}
 
 		bestBid, bestBidQuantity := int64(0), int64(0)
-		if len(bids) > 0 {
-			bestBid = bids[0].Price
-			bestBidQuantity = bids[0].Quantity
+		if len(depth.Bids) > 0 {
+			bestBid = depth.Bids[0].Price
+			bestBidQuantity = depth.Bids[0].Quantity
 		}
 
 		bestAsk, bestAskQuantity := int64(0), int64(0)
-		if len(asks) > 0 {
-			bestAsk = asks[0].Price
-			bestAskQuantity = asks[0].Quantity
+		if len(depth.Asks) > 0 {
+			bestAsk = depth.Asks[0].Price
+			bestAskQuantity = depth.Asks[0].Quantity
 		}
 
 		log.Printf("%s - restored %d commands, initialized book with best bid/ask: $%d @ %d / $%d @ %d",
