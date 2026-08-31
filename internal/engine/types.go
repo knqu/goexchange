@@ -19,6 +19,13 @@ func (s Side) String() string {
 	return ""
 }
 
+func (s Side) Other() Side {
+	if s == Buy {
+		return Sell
+	}
+	return Buy
+}
+
 type OrderType uint8
 
 const (
@@ -80,6 +87,7 @@ const (
 	EventRejected
 	EventTraded
 	EventCanceled
+	EventRested
 	EventExpired
 	EventHalted
 	EventResumed

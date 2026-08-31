@@ -41,6 +41,8 @@ func (b *Book) applySubmit(o Order, seq *seqCounter) []Event {
 	if o.Remaining > 0 {
 		if o.Type == Limit && o.TIF == Day {
 			b.rest(&o) // resting is safe because o is a local copy
+			events = append(events, Event{Type: EventRested, Seq: seq.next(),
+				OrderID: o.ID, Side: o.Side, Price: o.Price, Quantity: o.Remaining})
 		} else {
 			// unfilled remainders of market and IOC orders are discarded
 			events = append(events, Event{Type: EventExpired, Seq: seq.next(),
@@ -64,7 +66,7 @@ func (b *Book) applyCancel(id OrderID, seq *seqCounter) []Event {
 // --- matching logic ---
 
 func (b *Book) matchLoop(o *Order, seq *seqCounter) []Event {
-	opp := b.sideFor(o.Side.other())
+	opp := b.sideFor(o.Side.Other())
 	var events []Event
 
 	for o.Remaining > 0 && len(opp.levels) > 0 {
@@ -131,17 +133,10 @@ func crosses(o *Order, price int64) bool {
 	return price >= o.Price
 }
 
-func (s Side) other() Side {
-	if s == Buy {
-		return Sell
-	}
-	return Buy
-}
-
 // fillable returns whether an order can be completely filled from existing liquidity.
 // Caller guarantees that o.Remaining has been initialized to o.Quantity.
 func (b *Book) fillable(o *Order) bool {
-	opp := b.sideFor(o.Side.other())
+	opp := b.sideFor(o.Side.Other())
 	availableVolume := int64(0)
 
 	for _, lvl := range opp.levels {

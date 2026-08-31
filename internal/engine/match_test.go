@@ -49,9 +49,9 @@ func TestMatching(t *testing.T) {
 			setup: []Order{limit(1, 1, Sell, 9955, 100)},
 			order: limit(2, 2, Buy, 9960, 100),
 			want: []Event{
-				// start at Seq = 2 because Seq = 1 was consumed by setup's EventAccepted
-				{Type: EventAccepted, Seq: 2, OrderID: 2, Side: Buy, Price: 9960, Quantity: 100},
-				{Type: EventTraded, Seq: 3, OrderID: 2, MakerOrderID: 1, Side: Buy, Price: 9955, Quantity: 100},
+				// start at Seq = 3 because 1 and 2 were consumed by setup's EventAccepted and EventRested
+				{Type: EventAccepted, Seq: 3, OrderID: 2, Side: Buy, Price: 9960, Quantity: 100},
+				{Type: EventTraded, Seq: 4, OrderID: 2, MakerOrderID: 1, Side: Buy, Price: 9955, Quantity: 100},
 			},
 		},
 		{
@@ -63,11 +63,11 @@ func TestMatching(t *testing.T) {
 			},
 			order: limit(4, 4, Buy, 9950, 100),
 			want: []Event{
-				{Type: EventAccepted, Seq: 4, OrderID: 4, Side: Buy, Price: 9950, Quantity: 100},
-				{Type: EventTraded, Seq: 5, OrderID: 4, MakerOrderID: 1, Side: Buy, Price: 9950, Quantity: 30},
-				{Type: EventTraded, Seq: 6, OrderID: 4, MakerOrderID: 2, Side: Buy, Price: 9950, Quantity: 30},
-				{Type: EventTraded, Seq: 7, OrderID: 4, MakerOrderID: 3, Side: Buy, Price: 9950, Quantity: 30},
-				// Remaining = 10 (no more events; resting is silent)
+				{Type: EventAccepted, Seq: 7, OrderID: 4, Side: Buy, Price: 9950, Quantity: 100},
+				{Type: EventTraded, Seq: 8, OrderID: 4, MakerOrderID: 1, Side: Buy, Price: 9950, Quantity: 30},
+				{Type: EventTraded, Seq: 9, OrderID: 4, MakerOrderID: 2, Side: Buy, Price: 9950, Quantity: 30},
+				{Type: EventTraded, Seq: 10, OrderID: 4, MakerOrderID: 3, Side: Buy, Price: 9950, Quantity: 30},
+				{Type: EventRested, Seq: 11, OrderID: 4, Side: Buy, Price: 9950, Quantity: 10},
 			},
 		},
 		{
@@ -75,9 +75,9 @@ func TestMatching(t *testing.T) {
 			setup: []Order{limit(1, 1, Sell, 9950, 40)},
 			order: Order{ID: 2, AgentID: 2, Side: Buy, Type: Limit, TIF: IOC, Price: 9950, Quantity: 100},
 			want: []Event{
-				{Type: EventAccepted, Seq: 2, OrderID: 2, Side: Buy, Price: 9950, Quantity: 100},
-				{Type: EventTraded, Seq: 3, OrderID: 2, MakerOrderID: 1, Side: Buy, Price: 9950, Quantity: 40},
-				{Type: EventExpired, Seq: 4, OrderID: 2, Side: Buy, Price: 9950, Quantity: 60},
+				{Type: EventAccepted, Seq: 3, OrderID: 2, Side: Buy, Price: 9950, Quantity: 100},
+				{Type: EventTraded, Seq: 4, OrderID: 2, MakerOrderID: 1, Side: Buy, Price: 9950, Quantity: 40},
+				{Type: EventExpired, Seq: 5, OrderID: 2, Side: Buy, Price: 9950, Quantity: 60},
 			},
 		},
 		{
@@ -89,7 +89,7 @@ func TestMatching(t *testing.T) {
 			},
 			order: Order{ID: 4, AgentID: 4, Side: Buy, Type: Limit, TIF: FOK, Price: 9950, Quantity: 400},
 			want: []Event{
-				{Type: EventRejected, Seq: 4, OrderID: 4, RejectReason: RejectFOKInsufficient},
+				{Type: EventRejected, Seq: 7, OrderID: 4, RejectReason: RejectFOKInsufficient},
 			},
 		},
 		{
@@ -100,9 +100,9 @@ func TestMatching(t *testing.T) {
 			},
 			order: limit(3, 1, Buy, 9950, 100), // agent 1 crosses its own quote
 			want: []Event{
-				{Type: EventAccepted, Seq: 3, OrderID: 3, Side: Buy, Price: 9950, Quantity: 100},
-				{Type: EventCanceled, Seq: 4, OrderID: 1, Side: Sell, Price: 9950, Quantity: 100, CancelReason: CancelSelfTrade},
-				{Type: EventTraded, Seq: 5, OrderID: 3, MakerOrderID: 2, Side: Buy, Price: 9950, Quantity: 100},
+				{Type: EventAccepted, Seq: 5, OrderID: 3, Side: Buy, Price: 9950, Quantity: 100},
+				{Type: EventCanceled, Seq: 6, OrderID: 1, Side: Sell, Price: 9950, Quantity: 100, CancelReason: CancelSelfTrade},
+				{Type: EventTraded, Seq: 7, OrderID: 3, MakerOrderID: 2, Side: Buy, Price: 9950, Quantity: 100},
 			},
 		},
 	}
