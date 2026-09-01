@@ -9,19 +9,23 @@ import (
 // Exchange is a collection of engines mapped by symbol.
 type Exchange struct {
 	engines map[string]*Engine
+	events  map[string]chan []Event
 	done    chan struct{} // empty channel; closed when all engines belonging to the exchange have drained and stopped
 }
 
-// NewExchange initializes an exchange with a new engine for each symbol.
-// Engines share an exchange-wide events output channel and cancel function, but each owns its assigned JournalWriter.
-func NewExchange(symbols []string, buf int, events chan<- []Event, journals map[string]JournalWriter, cancel context.CancelFunc) *Exchange {
+// NewExchange initializes an exchange with a new engine (with its own events output channel) for each symbol.
+// Engines own their assigned JournalWriter, but share a cancel function (kill switch for the entire exchange).
+// Note that the given buffer size is used to create both the commands input and events output channels.
+func NewExchange(symbols []string, buf int, journals map[string]JournalWriter, cancel context.CancelFunc) *Exchange {
 	engines := make(map[string]*Engine, len(symbols))
+	events := make(map[string]chan []Event, len(symbols))
 
 	for _, symbol := range symbols {
-		engines[symbol] = NewEngine(symbol, buf, events, journals[symbol], cancel)
+		events[symbol] = make(chan []Event, buf)
+		engines[symbol] = NewEngine(symbol, buf, events[symbol], journals[symbol], cancel)
 	}
 
-	return &Exchange{engines: engines, done: make(chan struct{})}
+	return &Exchange{engines: engines, events: events, done: make(chan struct{})}
 }
 
 // Restore applies commands synchronously to the book to rebuild state from a journal.
@@ -50,10 +54,13 @@ func (x *Exchange) Run(ctx context.Context) {
 		}()
 	}
 
-	// spawn a goroutine to wait until all engines are done before closing the exchange's done channel
-	// we cannot use WaitGroup on the exchange itself because Exchange.Run() is non-blocking, unlike Engine.Run()
+	// wait until all engines are done before closing each symbol's events channel and the exchange's done channel
+	// cannot use WaitGroup on the exchange because Exchange.Run() is non-blocking (unlike Engine.Run(), which blocks)
 	go func() {
 		wg.Wait()
+		for _, ch := range x.events {
+			close(ch)
+		}
 		close(x.done)
 	}()
 }
@@ -86,7 +93,16 @@ func (x *Exchange) TryDispatch(symbol string, cmd Command) (accepted bool, err e
 	}
 }
 
-// Done is closed when the exchange has finished shutting down; wait on this before closing the events channel.
+// Events returns a map containing the receive-only events output channel for each symbol in the exchange.
+func (x *Exchange) Events() map[string]<-chan []Event {
+	chans := make(map[string]<-chan []Event, len(x.events))
+	for symbol, ch := range x.events {
+		chans[symbol] = ch
+	}
+	return chans
+}
+
+// Done is closed when the exchange has finished shutting down, including closing each symbol's events channel.
 func (x *Exchange) Done() <-chan struct{} {
 	return x.done
 }

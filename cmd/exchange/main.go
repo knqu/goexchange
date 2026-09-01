@@ -8,10 +8,13 @@ import (
 	"os"
 	"os/signal"
 	"strings"
+	"sync"
 
 	"github.com/knqu/goexchange/internal/engine"
+	"github.com/knqu/goexchange/internal/feed"
 	"github.com/knqu/goexchange/internal/gateway"
 	"github.com/knqu/goexchange/internal/journal"
+	"github.com/knqu/goexchange/internal/marketdata"
 )
 
 func main() {
@@ -65,20 +68,19 @@ func main() {
 
 	// initialize a new exchange (pass in previously initialized map of symbols to writers)
 
-	events := make(chan []engine.Event, bufSize)
 	ctx, cancel := context.WithCancel(context.Background())
-	exchange := engine.NewExchange(symbols, bufSize, events, writers, cancel)
+	exchange := engine.NewExchange(symbols, bufSize, writers, cancel)
 
 	// restore each (just-initialized) engine's book state from recorded commands
 
 	for symbol, cmds := range restoredCmds {
 		if err := exchange.Restore(symbol, cmds); err != nil {
-			log.Fatalf("%s - engine restore failed: %v", symbol, err)
+			log.Fatalf("%s restore failed: %v", symbol, err)
 		}
 
 		depth, err := exchange.Depth(symbol, 1)
 		if err != nil {
-			log.Fatalf("%s - depth query failed: %v", symbol, err)
+			log.Fatalf("%s depth query failed: %v", symbol, err)
 		}
 
 		bestBid, bestBidQuantity := int64(0), int64(0)
@@ -93,23 +95,31 @@ func main() {
 			bestAskQuantity = depth.Asks[0].Quantity
 		}
 
-		log.Printf("%s - restored %d commands, initialized book with best bid/ask: $%d @ %d / $%d @ %d",
+		log.Printf("%s restored (%d commands): initialized book with best bid/ask $%dx%d/$%dx%d",
 			symbol, len(cmds), bestBid, bestBidQuantity, bestAsk, bestAskQuantity)
 	}
 
-	// drain events channel in a separate goroutine, logging each event if debug mode is enabled
+	// aggregate and publish each symbol's events in a separate goroutine and log if debug mode is enabled
 
-	drained := make(chan struct{})
-	go func() {
-		for batch := range events {
-			if debug {
+	hub := feed.NewHub() // all aggregators share a single hub
+	var aggregators sync.WaitGroup
+
+	for symbol, ch := range exchange.Events() {
+		aggregator := marketdata.NewAggregator(hub)
+		aggregators.Add(1)
+
+		go func() {
+			defer aggregators.Done()
+			for batch := range ch {
 				for _, event := range batch {
-					log.Printf("event: %+v", event)
+					aggregator.Consume(event)
+					if debug {
+						log.Printf("%s event: %+v", symbol, event)
+					}
 				}
 			}
-		}
-		close(drained)
-	}()
+		}()
+	}
 
 	// start the exchange (spawn all engine goroutines); then, serve the HTTP gateway from a separate goroutine
 
@@ -140,8 +150,7 @@ func main() {
 	// gracefully shut down the exchange and close all journal writers
 
 	<-exchange.Done() // ensure exchange is fully stopped (no-op if already closed)
-	close(events)
-	<-drained
+	aggregators.Wait()
 
 	for _, writer := range writers {
 		writer.Close()

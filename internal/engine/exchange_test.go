@@ -3,23 +3,26 @@ package engine
 import (
 	"context"
 	"sync"
+	"sync/atomic"
 	"testing"
 )
 
 // TestDispatchRoutesToCorrectEngine submits unique orders to two symbols and checks that each landed on the right book.
 func TestDispatchRoutesToCorrectEngine(t *testing.T) {
-	events := make(chan []Event, 4096)
 	ctx, cancel := context.WithCancel(context.Background())
-	exchange := NewExchange([]string{"ACME", "MSFT"}, 64, events, nil, cancel)
+	exchange := NewExchange([]string{"ACME", "MSFT"}, 64, nil, cancel)
 	exchange.Run(ctx)
 
-	// drain events so engines never block on the shared channel
-	drained := make(chan struct{})
-	go func() {
-		for range events {
-		}
-		close(drained)
-	}()
+	// spawn a goroutine for every symbol to drain its events channel (so engines never block)
+	var drainers sync.WaitGroup
+	for _, ch := range exchange.Events() {
+		drainers.Add(1)
+		go func() {
+			defer drainers.Done()
+			for range ch {
+			}
+		}()
+	}
 
 	if err := exchange.Dispatch("ACME", Command{Type: CmdSubmit, Order: Order{
 		ID: 1, AgentID: 1,
@@ -39,8 +42,7 @@ func TestDispatchRoutesToCorrectEngine(t *testing.T) {
 
 	cancel()
 	<-exchange.Done()
-	close(events)
-	<-drained
+	drainers.Wait()
 
 	// each order must rest on the book registered to its own symbol
 	acme := exchange.engines["ACME"].book
@@ -63,8 +65,7 @@ func TestDispatchRoutesToCorrectEngine(t *testing.T) {
 
 // TestDispatchUnknownSymbol verifies dispatching to a nonexistent symbol errors rather than panicking or dropping.
 func TestDispatchUnknownSymbol(t *testing.T) {
-	events := make(chan []Event, 16)
-	exchange := NewExchange([]string{"ACME"}, 64, events, nil, nil)
+	exchange := NewExchange([]string{"ACME"}, 64, nil, nil)
 
 	// note: no Exchange.Run() or events drainage logic is needed because dispatch fails before any send
 
@@ -78,24 +79,25 @@ func TestDispatchUnknownSymbol(t *testing.T) {
 	}
 }
 
-// TestExchangeShutdownIsClean spawns a multi-symbol exchange under concurrent load, then shuts it down.
-// Under -race, it proves N engines sending to one events channel don't race and that Exchange.Done() closes correctly.
+// TestExchangeShutdownIsClean spawns a multi-symbol exchange under concurrent load, then shuts it down (use -race).
 func TestExchangeShutdownIsClean(t *testing.T) {
 	symbols := []string{"ACME", "MSFT", "GOOG"}
 
-	events := make(chan []Event, 4096)
 	ctx, cancel := context.WithCancel(context.Background())
-	exchange := NewExchange(symbols, 1024, events, nil, cancel)
+	exchange := NewExchange(symbols, 1024, nil, cancel)
 	exchange.Run(ctx)
 
-	var got int64
-	drained := make(chan struct{})
-	go func() {
-		for batch := range events {
-			got += int64(len(batch))
-		}
-		close(drained)
-	}()
+	var got atomic.Int64 // updated across multiple drainer goroutines
+	var drainers sync.WaitGroup
+	for _, ch := range exchange.Events() {
+		drainers.Add(1)
+		go func() {
+			defer drainers.Done()
+			for batch := range ch {
+				got.Add(int64(len(batch)))
+			}
+		}()
+	}
 
 	// concurrent submitters spread across all symbols
 	var submitters sync.WaitGroup
@@ -117,11 +119,10 @@ func TestExchangeShutdownIsClean(t *testing.T) {
 
 	submitters.Wait() // block until all commands are sent
 	cancel()          // ask all engines to stop
-	<-exchange.Done() // block until every engine has exited
-	close(events)     // safe: all senders provably gone
-	<-drained
+	<-exchange.Done() // block until every engine has exited and all of their events channels have been closed
+	drainers.Wait()   // block until drainers are done (so got is accurate)
 
-	if got == 0 {
+	if got.Load() == 0 {
 		t.Fatal("expected events across the exchange, got none")
 	}
 }
@@ -132,22 +133,24 @@ func TestExchangeGracefulDrain(t *testing.T) {
 	const perSymbol = 300 // number of CmdSubmits per symbol
 	symbols := []string{"ACME", "MSFT"}
 
-	events := make(chan []Event, 8192)
 	ctx, cancel := context.WithCancel(context.Background())
-	exchange := NewExchange(symbols, perSymbol, events, nil, cancel) // buffer >= perSymbol: all commands land
+	exchange := NewExchange(symbols, perSymbol, nil, cancel) // buffer >= perSymbol: all commands land
 
-	var accepted int64
-	drained := make(chan struct{})
-	go func() {
-		for batch := range events {
-			for _, ev := range batch {
-				if ev.Type == EventAccepted {
-					accepted++
+	var accepted atomic.Int64 // updated across multiple drainer goroutines
+	var drainers sync.WaitGroup
+	for _, ch := range exchange.Events() {
+		drainers.Add(1)
+		go func() {
+			defer drainers.Done()
+			for batch := range ch {
+				for _, event := range batch {
+					if event.Type == EventAccepted {
+						accepted.Add(1)
+					}
 				}
 			}
-		}
-		close(drained)
-	}()
+		}()
+	}
 
 	// fill both engines' cmds buffer without starting the exchange
 	for s, symbol := range symbols {
@@ -169,11 +172,11 @@ func TestExchangeGracefulDrain(t *testing.T) {
 	// immediately cancel
 	cancel()
 	<-exchange.Done()
-	close(events)
-	<-drained
+	drainers.Wait()
 
+	got := accepted.Load()
 	want := int64(len(symbols) * perSymbol)
-	if accepted != want {
-		t.Fatalf("drained %d of %d commands; graceful shutdown dropped %d", accepted, want, want-accepted)
+	if got != want {
+		t.Fatalf("drained %d of %d commands; graceful shutdown dropped %d", got, want, want-got)
 	}
 }
