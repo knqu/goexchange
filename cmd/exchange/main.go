@@ -11,26 +11,23 @@ import (
 	"sync"
 
 	"github.com/knqu/goexchange/internal/engine"
-	"github.com/knqu/goexchange/internal/feed"
 	"github.com/knqu/goexchange/internal/gateway"
 	"github.com/knqu/goexchange/internal/journal"
 	"github.com/knqu/goexchange/internal/marketdata"
 )
 
 func main() {
-	// parse command-line options into variables (symbols, server listen address, buffer size, debug mode)
+	// parse command-line options into variables (supported symbols, server listen address, buffer size)
 
 	symbolsFlag := flag.String("symbols", "ACME", "comma-separated list of symbols available for trading")
 	addressFlag := flag.String("address", "localhost:8080", "HTTP listen address")
 	bufSizeFlag := flag.Int("bufSize", 4096, "per-engine command buffer size")
-	debugFlag := flag.Bool("debug", false, "toggle debug mode")
 
 	flag.Parse()
 
 	symbols := strings.Split(*symbolsFlag, ",")
 	address := *addressFlag
 	bufSize := *bufSizeFlag
-	debug := *debugFlag
 
 	// create /journals directory if it doesn't already exist
 
@@ -99,25 +96,17 @@ func main() {
 			symbol, len(cmds), bestBid, bestBidQuantity, bestAsk, bestAskQuantity)
 	}
 
-	// aggregate and publish each symbol's events in a separate goroutine and log if debug mode is enabled
+	// run per-symbol aggregators in separate goroutines to track engine events and handle snapshot/delta publishing
 
-	hub := feed.NewHub() // all aggregators share a single hub
 	var aggregators sync.WaitGroup
 
-	for symbol, ch := range exchange.Events() {
-		aggregator := marketdata.NewAggregator(hub)
+	for _, ch := range exchange.Events() {
+		aggregator := marketdata.NewAggregator()
 		aggregators.Add(1)
 
 		go func() {
 			defer aggregators.Done()
-			for batch := range ch {
-				for _, event := range batch {
-					aggregator.Consume(event)
-					if debug {
-						log.Printf("%s event: %+v", symbol, event)
-					}
-				}
-			}
+			aggregator.Run(ch)
 		}()
 	}
 
