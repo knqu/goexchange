@@ -66,9 +66,9 @@ func NewAggregator() *Aggregator {
 func (a *Aggregator) Run(events <-chan []engine.Event) {
 	for {
 		select {
-		case batch, open := <-events:
+		case batch, ok := <-events:
 			// aggregator returns once events channel is closed; no need to select on <-ctx.Done()
-			if !open {
+			if !ok {
 				return
 			}
 			for _, event := range batch {

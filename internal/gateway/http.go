@@ -8,6 +8,7 @@ import (
 	"sync/atomic"
 
 	"github.com/knqu/goexchange/internal/engine"
+	"github.com/knqu/goexchange/internal/marketdata"
 )
 
 // --- gateway data structures and setup ---
@@ -34,6 +35,8 @@ type orderCancelRequest struct {
 // It processes requests into validated commands and routes them to the exchange.
 type Gateway struct {
 	exchange    *engine.Exchange
+	aggregators map[string]*marketdata.Aggregator
+	messagesBuf int
 	prevOrderID atomic.Uint64 // needs to be atomic because multiple handlers can run concurrently
 }
 
@@ -42,8 +45,8 @@ func (g *Gateway) nextOrderID() engine.OrderID {
 }
 
 // NewGateway initializes a new gateway that wraps the given exchange, updating its internal OrderID counter.
-func NewGateway(exchange *engine.Exchange, lastOrderID uint64) *Gateway {
-	g := &Gateway{exchange: exchange}
+func NewGateway(exchange *engine.Exchange, aggregators map[string]*marketdata.Aggregator, messagesBuf int, lastOrderID uint64) *Gateway {
+	g := &Gateway{exchange: exchange, aggregators: aggregators, messagesBuf: messagesBuf}
 	g.prevOrderID.Store(lastOrderID)
 	return g
 }
@@ -56,6 +59,7 @@ func (g *Gateway) Serve(addr string) error {
 	mux.HandleFunc("POST /admin/symbols/{symbol}/halt", g.handleHaltTrading)
 	mux.HandleFunc("POST /admin/symbols/{symbol}/resume", g.handleResumeTrading)
 	mux.HandleFunc("GET /books/{symbol}", g.handleDepthQuery)
+	mux.HandleFunc("GET /ws", g.handleWS)
 	return http.ListenAndServe(addr, mux)
 }
 

@@ -64,7 +64,7 @@ func (bs *bookSide) findIndex(price int64) int {
 
 // getOrCreateLevel returns the level for price, creating and inserting it if needed.
 func (bs *bookSide) getOrCreateLevel(price int64) *level {
-	if lvl, exists := bs.byPrice[price]; exists {
+	if lvl, ok := bs.byPrice[price]; ok {
 		return lvl
 	}
 
@@ -142,8 +142,8 @@ func (b *Book) rest(o *Order) {
 
 // cancel removes a resting order, returning false if the ID isn't resting (already filled/cancelled or never existed).
 func (b *Book) cancel(id OrderID) (*Order, bool) {
-	ref, exists := b.byID[id]
-	if !exists {
+	ref, ok := b.byID[id]
+	if !ok {
 		return nil, false
 	}
 

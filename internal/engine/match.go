@@ -16,7 +16,7 @@ func (b *Book) Apply(cmd Command, seq *seqCounter) []Event {
 
 // Gateway guarantees order IDs are never reused.
 func (b *Book) applySubmit(o Order, seq *seqCounter) []Event {
-	if _, exists := b.byID[o.ID]; exists {
+	if _, ok := b.byID[o.ID]; ok {
 		panic("duplicate order id")
 	}
 

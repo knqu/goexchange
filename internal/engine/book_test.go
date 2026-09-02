@@ -142,8 +142,8 @@ func TestRestEnforcesTimePriority(t *testing.T) {
 
 			price := tc.orders[0].Price // price for all orders must be equal
 			side := b.sideFor(tc.checkSide)
-			level, exists := side.byPrice[price]
-			if !exists {
+			level, ok := side.byPrice[price]
+			if !ok {
 				t.Fatalf("no %s level at %d after resting orders", side.String(), price)
 			}
 
@@ -320,8 +320,8 @@ func TestLevelRebirth(t *testing.T) {
 
 	restAll(t, b, []Order{restOrder(2, Buy, 9950, 50, 50)})
 
-	lvl, exists := b.bids.byPrice[9950]
-	if !exists {
+	lvl, ok := b.bids.byPrice[9950]
+	if !ok {
 		t.Fatal("no bid level at 9950 after rebirth")
 	}
 	if got := lvl.orders.Front().Value.(*Order).ID; got != OrderID(2) {

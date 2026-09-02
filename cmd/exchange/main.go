@@ -17,17 +17,19 @@ import (
 )
 
 func main() {
-	// parse command-line options into variables (supported symbols, server listen address, buffer size)
+	// parse command-line options into variables
 
 	symbolsFlag := flag.String("symbols", "ACME", "comma-separated list of symbols available for trading")
 	addressFlag := flag.String("address", "localhost:8080", "HTTP listen address")
-	bufSizeFlag := flag.Int("bufSize", 4096, "per-engine command buffer size")
+	exchangeBufFlag := flag.Int("exchangeBuf", 4096, "per-engine commands/events channel buffer size")
+	messagesBufFlag := flag.Int("messagesBuf", 256, "per-subscriber messages channel buffer size")
 
 	flag.Parse()
 
 	symbols := strings.Split(*symbolsFlag, ",")
 	address := *addressFlag
-	bufSize := *bufSizeFlag
+	exchangeBuf := *exchangeBufFlag
+	messagesBuf := *messagesBufFlag
 
 	// create /journals directory if it doesn't already exist
 
@@ -66,7 +68,7 @@ func main() {
 	// initialize a new exchange (pass in previously initialized map of symbols to writers)
 
 	ctx, cancel := context.WithCancel(context.Background())
-	exchange := engine.NewExchange(symbols, bufSize, writers, cancel)
+	exchange := engine.NewExchange(symbols, exchangeBuf, writers, cancel)
 
 	// restore each (just-initialized) engine's book state from recorded commands
 
@@ -98,14 +100,16 @@ func main() {
 
 	// run per-symbol aggregators in separate goroutines to track engine events and handle snapshot/delta publishing
 
-	var aggregators sync.WaitGroup
+	aggregators := make(map[string]*marketdata.Aggregator)
+	var aggregatorGroup sync.WaitGroup
 
-	for _, ch := range exchange.Events() {
+	for symbol, ch := range exchange.Events() {
 		aggregator := marketdata.NewAggregator()
-		aggregators.Add(1)
+		aggregators[symbol] = aggregator
+		aggregatorGroup.Add(1)
 
 		go func() {
-			defer aggregators.Done()
+			defer aggregatorGroup.Done()
 			aggregator.Run(ch)
 		}()
 	}
@@ -114,7 +118,7 @@ func main() {
 
 	exchange.Run(ctx)
 
-	gateway := gateway.NewGateway(exchange, maxOrderID)
+	gateway := gateway.NewGateway(exchange, aggregators, messagesBuf, maxOrderID)
 	go func() {
 		if err := gateway.Serve(address); err != nil && err != http.ErrServerClosed {
 			log.Fatalf("server error: %v", err)
@@ -139,7 +143,7 @@ func main() {
 	// gracefully shut down the exchange and close all journal writers
 
 	<-exchange.Done() // ensure exchange is fully stopped (no-op if already closed)
-	aggregators.Wait()
+	aggregatorGroup.Wait()
 
 	for _, writer := range writers {
 		writer.Close()
