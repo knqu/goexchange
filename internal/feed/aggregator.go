@@ -19,12 +19,28 @@ type Snapshot struct {
 	Asks []engine.PriceLevel
 }
 
+func (s Snapshot) MarshalJSON() ([]byte, error) {
+	type alias Snapshot // create new type with same fields but no methods (avoid infinite recursion)
+	return json.Marshal(struct {
+		Type string `json:"type"`
+		alias
+	}{Type: "snapshot", alias: alias(s)})
+}
+
 // Delta is a single incremental book update, stamped with a monotonically increasing seq (to detect dropped messages).
 type Delta struct {
 	Seq      uint64
 	Side     engine.Side
 	Price    int64
 	Quantity int64
+}
+
+func (d Delta) MarshalJSON() ([]byte, error) {
+	type alias Delta // create new type with same fields but no methods (avoid infinite recursion)
+	return json.Marshal(struct {
+		Type string `json:"type"`
+		alias
+	}{Type: "delta", alias: alias(d)})
 }
 
 // subReq represents a request to subscribe to the aggregator's updates.
