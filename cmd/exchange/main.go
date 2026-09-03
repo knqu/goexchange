@@ -11,9 +11,9 @@ import (
 	"sync"
 
 	"github.com/knqu/goexchange/internal/engine"
+	"github.com/knqu/goexchange/internal/feed"
 	"github.com/knqu/goexchange/internal/gateway"
 	"github.com/knqu/goexchange/internal/journal"
-	"github.com/knqu/goexchange/internal/marketdata"
 )
 
 func main() {
@@ -100,11 +100,11 @@ func main() {
 
 	// run per-symbol aggregators in separate goroutines to track engine events and handle snapshot/delta publishing
 
-	aggregators := make(map[string]*marketdata.Aggregator)
+	aggregators := make(map[string]*feed.Aggregator)
 	var aggregatorGroup sync.WaitGroup
 
 	for symbol, ch := range exchange.Events() {
-		aggregator := marketdata.NewAggregator()
+		aggregator := feed.NewAggregator()
 		aggregators[symbol] = aggregator
 		aggregatorGroup.Add(1)
 

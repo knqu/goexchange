@@ -8,7 +8,7 @@ import (
 	"sync/atomic"
 
 	"github.com/knqu/goexchange/internal/engine"
-	"github.com/knqu/goexchange/internal/marketdata"
+	"github.com/knqu/goexchange/internal/feed"
 )
 
 // --- gateway data structures and setup ---
@@ -35,7 +35,7 @@ type orderCancelRequest struct {
 // It processes requests into validated commands and routes them to the exchange.
 type Gateway struct {
 	exchange    *engine.Exchange
-	aggregators map[string]*marketdata.Aggregator
+	aggregators map[string]*feed.Aggregator
 	messagesBuf int
 	prevOrderID atomic.Uint64 // needs to be atomic because multiple handlers can run concurrently
 }
@@ -45,7 +45,7 @@ func (g *Gateway) nextOrderID() engine.OrderID {
 }
 
 // NewGateway initializes a new gateway that wraps the given exchange, updating its internal OrderID counter.
-func NewGateway(exchange *engine.Exchange, aggregators map[string]*marketdata.Aggregator, messagesBuf int, lastOrderID uint64) *Gateway {
+func NewGateway(exchange *engine.Exchange, aggregators map[string]*feed.Aggregator, messagesBuf int, lastOrderID uint64) *Gateway {
 	g := &Gateway{exchange: exchange, aggregators: aggregators, messagesBuf: messagesBuf}
 	g.prevOrderID.Store(lastOrderID)
 	return g

@@ -1,12 +1,12 @@
-package marketdata
+package feed
 
 import (
 	"encoding/json"
 	"log"
 	"slices"
 
+	"github.com/knqu/goexchange/internal/broadcast"
 	"github.com/knqu/goexchange/internal/engine"
-	"github.com/knqu/goexchange/internal/feed"
 )
 
 // --- utility data structures ---
@@ -31,7 +31,7 @@ type Delta struct {
 // Subscription requests must be processed in sequence with events because snapshotting reads live maps (bids/asks).
 type subReq struct {
 	buf   int
-	reply chan *feed.Subscriber
+	reply chan *broadcast.Subscriber
 }
 
 // --- aggregator data structures and methods ---
@@ -42,7 +42,7 @@ type subReq struct {
 type Aggregator struct {
 	bids    map[int64]int64
 	asks    map[int64]int64
-	hub     *feed.Hub
+	hub     *broadcast.Hub
 	subReqs chan *subReq
 	seq     uint64
 }
@@ -52,12 +52,12 @@ func (a *Aggregator) nextSeq() uint64 {
 	return a.seq
 }
 
-// NewAggregator initializes a new aggregator with its own feed hub for publishing updates.
+// NewAggregator initializes a new aggregator with its own broadcast hub for publishing updates.
 func NewAggregator() *Aggregator {
 	return &Aggregator{
 		bids:    make(map[int64]int64),
 		asks:    make(map[int64]int64),
-		hub:     feed.NewHub(),
+		hub:     broadcast.NewHub(),
 		subReqs: make(chan *subReq),
 	}
 }
@@ -83,19 +83,19 @@ func (a *Aggregator) Run(events <-chan []engine.Event) {
 }
 
 // Subscribe registers a new subscriber and returns a struct containing their messages channel; buf must be >= 1.
-func (a *Aggregator) Subscribe(buf int) *feed.Subscriber {
+func (a *Aggregator) Subscribe(buf int) *broadcast.Subscriber {
 	if buf < 1 {
 		buf = 1 // clamp buffer size to prevent sendSnapshot() from blocking and deadlocking Run()
 	}
 
-	subReq := &subReq{buf: buf, reply: make(chan *feed.Subscriber, 1)}
+	subReq := &subReq{buf: buf, reply: make(chan *broadcast.Subscriber, 1)}
 	a.subReqs <- subReq
 
 	return <-subReq.reply // block caller until subReq has been processed by Run() and subscriber instance is ready
 }
 
 // Unsubscribe removes a subscriber and closes their messages channel.
-func (a *Aggregator) Unsubscribe(sub *feed.Subscriber) {
+func (a *Aggregator) Unsubscribe(sub *broadcast.Subscriber) {
 	a.hub.Unsubscribe(sub)
 }
 
@@ -158,7 +158,7 @@ func (a *Aggregator) sendSnapshot(messages chan<- []byte) {
 		Asks: asks,
 	})
 	if err != nil {
-		log.Printf("marketdata: marshal failed: %v", err)
+		log.Printf("feed: marshal failed: %v", err)
 		return
 	}
 
@@ -174,7 +174,7 @@ func (a *Aggregator) publishDelta(side engine.Side, price, newQuantity int64) {
 		Quantity: newQuantity,
 	})
 	if err != nil {
-		log.Printf("marketdata: marshal failed: %v", err)
+		log.Printf("feed: marshal failed: %v", err)
 		return
 	}
 
