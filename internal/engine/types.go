@@ -119,6 +119,8 @@ type Event struct {
 	Seq          uint64
 	OrderID      OrderID
 	MakerOrderID OrderID
+	AgentID      AgentID
+	MakerAgentID AgentID
 	Side         Side
 	Price        int64
 	Quantity     int64

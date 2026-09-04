@@ -84,16 +84,17 @@ func (e *Engine) handle(cmd Command) []Event {
 		cmd.DepthQuery.Reply <- e.book.Depth(cmd.DepthQuery.Depth)
 		return nil
 	default:
-		// any command that adds liquidity (only submit currently) should be rejected on engine halt
+		// any command that adds liquidity (submits) should be rejected on engine halt
 		if e.halted && cmd.Type == CmdSubmit {
-			return reject(&e.seq, cmd.Order.ID, RejectHalted)
+			return reject(&e.seq, cmd.Order.ID, cmd.Order.AgentID, RejectHalted)
 		}
 
 		// any command that allows participants to exit or observe should be allowed even on engine halt
 		if e.journal != nil {
 			if err := e.journal.Append(cmd); err != nil {
+				// if journal write fails, do not apply command; kill exchange and reject command
 				e.cancel()
-				return reject(&e.seq, cmd.Order.ID, RejectJournalFailed) // do not apply command
+				return reject(&e.seq, cmd.Order.ID, cmd.Order.AgentID, RejectJournalFailed)
 			}
 		}
 		return e.book.Apply(cmd, &e.seq)

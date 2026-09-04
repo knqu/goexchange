@@ -10,7 +10,7 @@ func (b *Book) Apply(cmd Command, seq *seqCounter) []Event {
 	case CmdCancel:
 		return b.applyCancel(cmd.CancelID, seq)
 	default:
-		return reject(seq, 0, RejectUnknownCommand)
+		return reject(seq, 0, cmd.Order.AgentID, RejectUnknownCommand)
 	}
 }
 
@@ -22,31 +22,31 @@ func (b *Book) applySubmit(o Order, seq *seqCounter) []Event {
 
 	// if price and quantity are both invalid, RejectInvalidPrice will be caught first
 	if (o.Type == Limit && o.Price <= 0) || (o.Type == Market && o.Price != 0) {
-		return reject(seq, o.ID, RejectInvalidPrice)
+		return reject(seq, o.ID, o.AgentID, RejectInvalidPrice)
 	}
 	if o.Quantity <= 0 {
-		return reject(seq, o.ID, RejectInvalidQuantity)
+		return reject(seq, o.ID, o.AgentID, RejectInvalidQuantity)
 	}
 
 	o.Remaining = o.Quantity
 
 	if o.TIF == FOK && !b.fillable(&o) {
-		return reject(seq, o.ID, RejectFOKInsufficient)
+		return reject(seq, o.ID, o.AgentID, RejectFOKInsufficient)
 	}
 
 	events := []Event{{Type: EventAccepted, Seq: seq.next(),
-		OrderID: o.ID, Side: o.Side, Price: o.Price, Quantity: o.Quantity}}
+		OrderID: o.ID, AgentID: o.AgentID, Side: o.Side, Price: o.Price, Quantity: o.Quantity}}
 	events = append(events, b.matchLoop(&o, seq)...)
 
 	if o.Remaining > 0 {
 		if o.Type == Limit && o.TIF == Day {
 			b.rest(&o) // resting is safe because o is a local copy
 			events = append(events, Event{Type: EventRested, Seq: seq.next(),
-				OrderID: o.ID, Side: o.Side, Price: o.Price, Quantity: o.Remaining})
+				OrderID: o.ID, AgentID: o.AgentID, Side: o.Side, Price: o.Price, Quantity: o.Remaining})
 		} else {
 			// unfilled remainders of market and IOC orders are discarded
 			events = append(events, Event{Type: EventExpired, Seq: seq.next(),
-				OrderID: o.ID, Side: o.Side, Price: o.Price, Quantity: o.Remaining})
+				OrderID: o.ID, AgentID: o.AgentID, Side: o.Side, Price: o.Price, Quantity: o.Remaining})
 		}
 	}
 
@@ -56,10 +56,10 @@ func (b *Book) applySubmit(o Order, seq *seqCounter) []Event {
 func (b *Book) applyCancel(id OrderID, seq *seqCounter) []Event {
 	o, ok := b.cancel(id)
 	if !ok {
-		return reject(seq, id, RejectOrderNotFound) // echo requested OrderID (no actual order exists)
+		return reject(seq, id, AgentID(0), RejectOrderNotFound) // no order with given ID exists
 	}
 	return []Event{{Type: EventCanceled, Seq: seq.next(),
-		OrderID: o.ID, Side: o.Side, Price: o.Price, Quantity: o.Remaining,
+		OrderID: o.ID, AgentID: o.AgentID, Side: o.Side, Price: o.Price, Quantity: o.Remaining,
 		CancelReason: CancelUser}}
 }
 
@@ -88,7 +88,7 @@ func (b *Book) matchLoop(o *Order, seq *seqCounter) []Event {
 				delete(b.byID, maker.ID)
 
 				events = append(events, Event{Type: EventCanceled, Seq: seq.next(),
-					OrderID: maker.ID, Side: maker.Side, Price: maker.Price, Quantity: maker.Remaining,
+					OrderID: maker.ID, AgentID: maker.AgentID, Side: maker.Side, Price: maker.Price, Quantity: maker.Remaining,
 					CancelReason: CancelSelfTrade})
 
 				node = nextNode
@@ -101,7 +101,7 @@ func (b *Book) matchLoop(o *Order, seq *seqCounter) []Event {
 			best.volume -= quantity
 
 			events = append(events, Event{Type: EventTraded, Seq: seq.next(),
-				OrderID: o.ID, MakerOrderID: maker.ID, Side: o.Side, Price: maker.Price, Quantity: quantity,
+				OrderID: o.ID, MakerOrderID: maker.ID, AgentID: o.AgentID, MakerAgentID: maker.AgentID, Side: o.Side, Price: maker.Price, Quantity: quantity,
 			})
 
 			nextNode := node.Next() // we need to keep a reference to node to be able to delete it
@@ -157,6 +157,6 @@ func (b *Book) fillable(o *Order) bool {
 	return false
 }
 
-func reject(seq *seqCounter, id OrderID, reason RejectReason) []Event {
-	return []Event{{Type: EventRejected, Seq: seq.next(), OrderID: id, RejectReason: reason}}
+func reject(seq *seqCounter, id OrderID, agentID AgentID, reason RejectReason) []Event {
+	return []Event{{Type: EventRejected, Seq: seq.next(), OrderID: id, AgentID: agentID, RejectReason: reason}}
 }
