@@ -19,15 +19,17 @@ type Client struct {
 	mu      sync.RWMutex // guards bids/asks and lastSeq, which are read by callers while written to by Run()
 	bids    map[int64]int64
 	asks    map[int64]int64
-	lastSeq uint64 // seq of last applied message (used to detect gaps)
+	lastSeq uint64 // seq of last applied delta (used to detect gaps)
+	trades  chan Trade
 }
 
 // NewClient initializes a new Client instance able to connect to the market data feed at the given URL.
-func NewClient(url string) *Client {
+func NewClient(url string, buf int) *Client {
 	return &Client{
-		url:  url,
-		bids: make(map[int64]int64),
-		asks: make(map[int64]int64),
+		url:    url,
+		bids:   make(map[int64]int64),
+		asks:   make(map[int64]int64),
+		trades: make(chan Trade, buf),
 	}
 }
 
@@ -72,6 +74,8 @@ func (c *Client) connectAndRead(ctx context.Context) error {
 			if resnapshot := c.applyDelta(data); resnapshot {
 				return fmt.Errorf("new snapshot needed due to seq gap in delta stream")
 			}
+		case "trade":
+			c.sendTrade(data)
 		}
 	}
 }
@@ -103,7 +107,7 @@ func (c *Client) applySnapshot(data []byte) {
 }
 
 // applyDelta applies a new delta to the client's book.
-// It returns a bool if a new snapshot is needed due to a sequence gap in the delta stream.
+// It returns true if a new snapshot is needed due to a sequence gap in the delta stream, false otherwise.
 func (c *Client) applyDelta(data []byte) bool {
 	var delta Delta
 
@@ -138,6 +142,21 @@ func (c *Client) applyDelta(data []byte) bool {
 	return false
 }
 
+// sendTrade sends a new trade into the trades channel; dropped messages are ignored (trades don't carry a seq).
+func (c *Client) sendTrade(data []byte) {
+	var trade Trade
+
+	if err := json.Unmarshal(data, &trade); err != nil {
+		return
+	}
+
+	select {
+	case c.trades <- trade:
+	default:
+		// drop sends into the consumer-exposed trades channel if busy
+	}
+}
+
 // --- exposer methods ---
 
 // Book returns a sorted DepthSnapshot representing the client's current book state.
@@ -159,4 +178,9 @@ func (c *Client) Book() engine.DepthSnapshot {
 	slices.SortFunc(asks, func(x, y engine.PriceLevel) int { return int(x.Price - y.Price) }) // low to high
 
 	return engine.DepthSnapshot{Bids: bids, Asks: asks}
+}
+
+// Trades returns a channel of confirmed trades, some of which may have been dropped if the channel was busy.
+func (c *Client) Trades() <-chan Trade {
+	return c.trades
 }

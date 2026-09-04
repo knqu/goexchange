@@ -43,6 +43,23 @@ func (d Delta) MarshalJSON() ([]byte, error) {
 	}{Type: "delta", alias: alias(d)})
 }
 
+// Trade represents a single confirmed trade, signaled by an EventTraded.
+type Trade struct {
+	MakerOrderID engine.OrderID
+	TakerOrderID engine.OrderID
+	Side         engine.Side
+	Price        int64
+	Quantity     int64
+}
+
+func (t Trade) MarshalJSON() ([]byte, error) {
+	type alias Trade
+	return json.Marshal(struct {
+		Type string `json:"type"`
+		alias
+	}{Type: "trade", alias: alias(t)})
+}
+
 // subReq represents a request to subscribe to the aggregator's updates.
 // Subscription requests must be processed in sequence with events because snapshotting reads live maps (bids/asks).
 type subReq struct {
@@ -125,6 +142,7 @@ func (a *Aggregator) consume(event engine.Event) {
 	case engine.EventTraded:
 		// only subtract from maker's quantity (taker's order hasn't rested yet)
 		a.update(a.mapFor(event.Side.Other()), event.Side.Other(), event.Price, -event.Quantity)
+		a.publishTrade(event.OrderID, event.MakerOrderID, event.Side, event.Price, event.Quantity)
 	case engine.EventCanceled:
 		a.update(a.mapFor(event.Side), event.Side, event.Price, -event.Quantity)
 	}
@@ -188,6 +206,23 @@ func (a *Aggregator) publishDelta(side engine.Side, price, newQuantity int64) {
 		Side:     side,
 		Price:    price,
 		Quantity: newQuantity,
+	})
+	if err != nil {
+		log.Printf("feed: marshal failed: %v", err)
+		return
+	}
+
+	a.hub.Publish(b)
+}
+
+// publishTrade publishes a confirmed trade to all subscribers.
+func (a *Aggregator) publishTrade(takerOrderID, makerOrderID engine.OrderID, side engine.Side, price, quantity int64) {
+	b, err := json.Marshal(Trade{
+		TakerOrderID: takerOrderID,
+		MakerOrderID: makerOrderID,
+		Side:         side,
+		Price:        price,
+		Quantity:     quantity,
 	})
 	if err != nil {
 		log.Printf("feed: marshal failed: %v", err)
