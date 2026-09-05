@@ -96,17 +96,15 @@ func NewAggregator() *Aggregator {
 }
 
 // Run starts the aggregator's main loop, processing engine events and handling subscription requests.
-func (a *Aggregator) Run(events <-chan []engine.Event) {
+func (a *Aggregator) Run(events <-chan engine.Event) {
 	for {
 		select {
-		case batch, ok := <-events:
+		case event, ok := <-events:
 			// aggregator returns once events channel is closed; no need to select on <-ctx.Done()
 			if !ok {
 				return
 			}
-			for _, event := range batch {
-				a.consume(event)
-			}
+			a.consume(event)
 		case req := <-a.subReqs:
 			sub := a.hub.Subscribe(req.buf)
 			a.sendSnapshot(sub.Messages) // sending snapshot before caller gets sub guarantees snapshot will beat delta

@@ -11,6 +11,7 @@ import (
 	"sync"
 
 	"github.com/knqu/goexchange/internal/engine"
+	"github.com/knqu/goexchange/internal/execution"
 	"github.com/knqu/goexchange/internal/feed"
 	"github.com/knqu/goexchange/internal/gateway"
 	"github.com/knqu/goexchange/internal/journal"
@@ -98,19 +99,40 @@ func main() {
 			symbol, len(cmds), bestBid, bestBidQuantity, bestAsk, bestAskQuantity)
 	}
 
-	// run per-symbol aggregators in separate goroutines to track engine events and handle snapshot/delta publishing
+	// run per-symbol aggregators for market data broadcasts and global distributor for maker/taker fill notifications
 
 	aggregators := make(map[string]*feed.Aggregator)
+	distributor := execution.NewDistributor()
+
+	var fanoutGroup sync.WaitGroup
 	var aggregatorGroup sync.WaitGroup
 
 	for symbol, ch := range exchange.Events() {
+		// create a new aggregator for each symbol
 		aggregator := feed.NewAggregator()
 		aggregators[symbol] = aggregator
 		aggregatorGroup.Add(1)
 
+		// fan-out events: send into aggregator's events channel and notify distributor if event was a trade
+		aggregations := make(chan engine.Event, exchangeBuf)
+		fanoutGroup.Add(1)
+		go func() {
+			defer fanoutGroup.Done()
+			defer close(aggregations)
+			for batch := range ch {
+				for _, event := range batch {
+					aggregations <- event
+					if event.Type == engine.EventTraded {
+						distributor.GenerateFill(symbol, event)
+					}
+				}
+			}
+		}()
+
+		// run aggregator in its own goroutine (event consumption loop is blocking)
 		go func() {
 			defer aggregatorGroup.Done()
-			aggregator.Run(ch)
+			aggregator.Run(aggregations)
 		}()
 	}
 
@@ -140,10 +162,13 @@ func main() {
 		log.Printf("exchange shutting down (kill switch; check for journal failure?)")
 	}
 
-	// gracefully shut down the exchange and close all journal writers
+	// gracefully shut down exchange, close distributor (and all fills channels), and close all journal writers
 
-	<-exchange.Done() // ensure exchange is fully stopped (no-op if already closed)
-	aggregatorGroup.Wait()
+	<-exchange.Done()      // wait for engines to drain buffered commands and exchange to close events channels
+	fanoutGroup.Wait()     // wait for fan-out to drain and process buffered events, sending them to an aggregator
+	aggregatorGroup.Wait() // wait for aggregators to drain their aggregations channel and broadcast to subscribers
+
+	distributor.Close() // closes all fills channels; fan-outs must stop calling distributor.GenerateFill()
 
 	for _, writer := range writers {
 		writer.Close()
