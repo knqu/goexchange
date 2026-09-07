@@ -46,9 +46,9 @@ func (ot OrderType) String() string {
 type TIF uint8 // time in force
 
 const (
-	Day TIF = iota // rest in the book until filled or cancelled
-	IOC            // immediately attempt to execute; any unfilled portion is cancelled
-	FOK            // immediately attempt to fill the order completely; if unable, the entire order is cancelled
+	Day TIF = iota // day: rest in the book until filled or cancelled
+	IOC            // immediate-or-cancel: attempt to execute immediately; any unfilled portion is cancelled
+	FOK            // fill-or-kill: attempt to completely fill immediately; if impossible, cancel the entire order
 )
 
 func (tif TIF) String() string {
@@ -56,9 +56,9 @@ func (tif TIF) String() string {
 	case Day:
 		return "day"
 	case IOC:
-		return "immediate-or-cancel"
+		return "ioc"
 	case FOK:
-		return "fill-or-kill"
+		return "fok"
 	}
 	return ""
 }
@@ -76,6 +76,26 @@ type Order struct {
 	Quantity  int64
 	Remaining int64
 	Seq       uint64 // maintains time priority
+}
+
+// --- command types ---
+
+type CmdType uint8
+
+const (
+	CmdSubmit CmdType = iota
+	CmdCancel
+	CmdHalt
+	CmdResume
+	CmdDepth
+)
+
+// Command is an instruction to the engine.
+type Command struct {
+	Type       CmdType
+	Order      Order      // CmdSubmit (passed by value; engine owns its own copy)
+	CancelID   OrderID    // CmdCancel
+	DepthQuery DepthQuery `json:"-"` // CmdDepth (exclude from JSON: never journaled + channels break serialization)
 }
 
 // --- event types ---
@@ -126,26 +146,6 @@ type Event struct {
 	Quantity     int64
 	CancelReason CancelReason
 	RejectReason RejectReason
-}
-
-// --- command types ---
-
-type CmdType uint8
-
-const (
-	CmdSubmit CmdType = iota
-	CmdCancel
-	CmdHalt
-	CmdResume
-	CmdDepth
-)
-
-// Command is an instruction to the engine.
-type Command struct {
-	Type       CmdType
-	Order      Order      // CmdSubmit (passed by value; engine owns its own copy)
-	CancelID   OrderID    // CmdCancel
-	DepthQuery DepthQuery `json:"-"` // CmdDepth (exclude from JSON: never journaled + channels break serialization)
 }
 
 // --- depth types ---
