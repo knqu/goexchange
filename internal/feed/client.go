@@ -22,17 +22,20 @@ type Client struct {
 	asks    map[int64]int64
 	lastSeq uint64 // seq of last applied delta (used to detect gaps)
 
-	lastPrice int64
-	trades    chan Trade
+	lastPrice  int64
+	recent     []Trade
+	recentSize int
 }
 
-// NewClient initializes a new Client instance able to connect to the market data feed at the given URL.
-func NewClient(url string, buf int) *Client {
+// NewClient initializes a new WebSocket client for the market data feed at the given URL.
+// The client's recent trades window is bounded by the configured recentSize (older trades are dropped).
+func NewClient(url string, recentSize int) *Client {
 	return &Client{
-		url:    url,
-		bids:   make(map[int64]int64),
-		asks:   make(map[int64]int64),
-		trades: make(chan Trade, buf),
+		url:        url,
+		bids:       make(map[int64]int64),
+		asks:       make(map[int64]int64),
+		recent:     make([]Trade, 0, recentSize),
+		recentSize: recentSize,
 	}
 }
 
@@ -78,7 +81,7 @@ func (c *Client) connectAndRead(ctx context.Context) error {
 				return fmt.Errorf("new snapshot needed due to seq gap in delta stream")
 			}
 		case "trade":
-			c.sendTrade(data)
+			c.applyTrade(data)
 		}
 	}
 }
@@ -145,8 +148,8 @@ func (c *Client) applyDelta(data []byte) bool {
 	return false
 }
 
-// sendTrade sends a new trade into the trades channel; dropped messages are ignored (trades don't carry a seq).
-func (c *Client) sendTrade(data []byte) {
+// applyTrade updates last price and the recent trades window; dropped messages are ignored (trades don't carry a seq).
+func (c *Client) applyTrade(data []byte) {
 	var trade Trade
 
 	if err := json.Unmarshal(data, &trade); err != nil {
@@ -154,24 +157,17 @@ func (c *Client) sendTrade(data []byte) {
 	}
 
 	c.mu.Lock()
-	c.lastPrice = trade.Price
-	c.mu.Unlock()
+	defer c.mu.Unlock()
 
-	select {
-	case c.trades <- trade:
-	default:
-		// drop sends into the consumer-exposed trades channel if busy
+	c.lastPrice = trade.Price
+
+	c.recent = append(c.recent, trade)
+	if len(c.recent) > c.recentSize {
+		c.recent = c.recent[1:]
 	}
 }
 
-// --- exposer methods ---
-
-// LastPrice returns the price the symbol last traded at, or 0 if no trades have been received yet.
-func (c *Client) LastPrice() int64 {
-	c.mu.RLock()
-	defer c.mu.RUnlock()
-	return c.lastPrice
-}
+// --- accessor methods ---
 
 // Book returns a sorted DepthSnapshot representing the client's current book state.
 func (c *Client) Book() engine.DepthSnapshot {
@@ -194,7 +190,16 @@ func (c *Client) Book() engine.DepthSnapshot {
 	return engine.DepthSnapshot{Bids: bids, Asks: asks}
 }
 
-// Trades returns a channel of confirmed trades, some of which may have been dropped if the channel was busy.
-func (c *Client) Trades() <-chan Trade {
-	return c.trades
+// LastPrice returns the price the symbol last traded at, or 0 if no trades have been received yet.
+func (c *Client) LastPrice() int64 {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.lastPrice
+}
+
+// Recent returns a best-effort window of recent trades (oldest to newest), bounded by the configured window size.
+func (c *Client) Recent() []Trade {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return slices.Clone(c.recent)
 }
