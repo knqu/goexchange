@@ -15,12 +15,15 @@ import (
 
 // Client subscribes to a symbol's market data feed, maintaining an internal book state of bids and asks.
 type Client struct {
-	url     string
+	url string
+
 	mu      sync.RWMutex // guards bids/asks and lastSeq, which are read by callers while written to by Run()
 	bids    map[int64]int64
 	asks    map[int64]int64
 	lastSeq uint64 // seq of last applied delta (used to detect gaps)
-	trades  chan Trade
+
+	lastPrice int64
+	trades    chan Trade
 }
 
 // NewClient initializes a new Client instance able to connect to the market data feed at the given URL.
@@ -35,12 +38,12 @@ func NewClient(url string, buf int) *Client {
 
 // --- client connection and read loop ---
 
-// Run connects and processes messages until cancelled; it should be run in a separate goroutine.
+// Run connects and processes messages until canceled; it should be run in a separate goroutine.
 func (c *Client) Run(ctx context.Context) {
 	for {
 		if err := c.connectAndRead(ctx); err != nil {
 			if ctx.Err() != nil {
-				return // context cancelled
+				return // context canceled
 			}
 			continue // connection dropped; reconnect
 		}
@@ -150,6 +153,10 @@ func (c *Client) sendTrade(data []byte) {
 		return
 	}
 
+	c.mu.Lock()
+	c.lastPrice = trade.Price
+	c.mu.Unlock()
+
 	select {
 	case c.trades <- trade:
 	default:
@@ -158,6 +165,13 @@ func (c *Client) sendTrade(data []byte) {
 }
 
 // --- exposer methods ---
+
+// LastPrice returns the price the symbol last traded at, or 0 if no trades have been received yet.
+func (c *Client) LastPrice() int64 {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.lastPrice
+}
 
 // Book returns a sorted DepthSnapshot representing the client's current book state.
 func (c *Client) Book() engine.DepthSnapshot {
