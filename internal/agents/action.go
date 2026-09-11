@@ -56,6 +56,18 @@ func NewLimit(side engine.Side, quantity int64, market MarketSnapshot, policy Po
 	}
 }
 
+// NewLimitAt generates a limit order action at the given side, price, and quantity (no derived price or TIF).
+func NewLimitAt(side engine.Side, price, quantity int64) Action {
+	return Action{
+		Type:      ActionSubmit,
+		Side:      side,
+		OrderType: engine.Limit,
+		TIF:       engine.Day,
+		Price:     price,
+		Quantity:  quantity,
+	}
+}
+
 // NewMarket generates a market order action, to be executed immediately at the best available price.
 func NewMarket(side engine.Side, quantity int64) Action {
 	return Action{

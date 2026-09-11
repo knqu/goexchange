@@ -42,5 +42,5 @@ func (n *Noise) OnTick(market agents.MarketSnapshot, policy agents.Policy, posit
 		return nil
 	}
 
-	return []agents.Action{{Type: agents.ActionSubmit, Side: side, OrderType: engine.Limit, TIF: engine.Day, Price: price, Quantity: quantity}}
+	return []agents.Action{agents.NewLimitAt(side, price, quantity)}
 }
