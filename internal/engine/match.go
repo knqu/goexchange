@@ -79,7 +79,7 @@ func (b *Book) matchLoop(o *Order, seq *seqCounter) []Event {
 		for node := best.orders.Front(); node != nil && o.Remaining > 0; {
 			maker := node.Value.(*Order)
 
-			// prevent agents from trading against their own liquidity by cancelling resting orders
+			// prevent agents from trading against their own liquidity by canceling resting orders
 			if o.AgentID == maker.AgentID {
 				nextNode := node.Next()
 

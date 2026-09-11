@@ -1,7 +1,7 @@
 package engine
 
 import (
-	"math/rand"
+	"math/rand/v2"
 	"slices"
 	"testing"
 )
@@ -143,7 +143,7 @@ func TestFOKRejectionLeavesBookUntouched(t *testing.T) {
 // TestBookInvariantsUnderRandomCommands runs a sequence of random commands, checking the book's invariants after each.
 func TestBookInvariantsUnderRandomCommands(t *testing.T) {
 	const nCommands = 10_000
-	rng := rand.New(rand.NewSource(25)) // fixed seed guarantees reproducibility
+	rng := rand.New(rand.NewPCG(5, 25)) // fixed seed guarantees reproducibility
 
 	b := NewBook()
 
@@ -157,22 +157,22 @@ func TestBookInvariantsUnderRandomCommands(t *testing.T) {
 	for i := 0; i < nCommands; i++ {
 		var cmd Command
 
-		if len(resting) > 0 && rng.Intn(10) == 0 { // ~10% cancels
-			cmd = Command{Type: CmdCancel, CancelID: resting[rng.Intn(len(resting))]} // randomly pick a resting order to cancel
+		if len(resting) > 0 && rng.IntN(10) == 0 { // ~10% cancels
+			cmd = Command{Type: CmdCancel, CancelID: resting[rng.IntN(len(resting))]} // randomly pick a resting order to cancel
 		} else {
 			nextID++
 
 			o := Order{
 				ID:       nextID,
-				AgentID:  agents[rng.Intn(len(agents))],
-				Side:     Side(rng.Intn(2)),
+				AgentID:  agents[rng.IntN(len(agents))],
+				Side:     Side(rng.IntN(2)),
 				Type:     Limit,
-				TIF:      TIF(rng.Intn(3)),
-				Price:    int64(9900 + rng.Intn(21)),
-				Quantity: int64(1 + rng.Intn(200)),
+				TIF:      TIF(rng.IntN(3)),
+				Price:    int64(9900 + rng.IntN(21)),
+				Quantity: int64(1 + rng.IntN(200)),
 			}
 
-			if rng.Intn(10) == 0 { // ~10% market orders
+			if rng.IntN(10) == 0 { // ~10% market orders
 				o.Type = Market
 				o.TIF = Day
 				o.Price = 0

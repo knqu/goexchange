@@ -2,7 +2,7 @@ package journal
 
 import (
 	"context"
-	"math/rand"
+	"math/rand/v2"
 	"path/filepath"
 	"sync"
 	"testing"
@@ -17,7 +17,7 @@ func TestReplayIsDeterministic(t *testing.T) {
 	for run := 0; run < 5; run++ {
 		path := filepath.Join(t.TempDir(), "test.jnl")
 
-		cmds := buildCommands(rand.New(rand.NewSource(25)), nCommands)
+		cmds := buildCommands(rand.New(rand.NewPCG(5, 25)), nCommands)
 
 		hashA := runAndJournal(t, path, cmds) // apply command sequence live, journaling each command
 		hashB := replayIntoEngine(t, path)    // rebuild a fresh engine from the journal
@@ -102,8 +102,8 @@ func buildCommands(rng *rand.Rand, n int) []engine.Command {
 	var nextID engine.OrderID
 
 	for i := 0; i < n; i++ {
-		if len(resting) > 0 && rng.Intn(10) == 0 { // ~10% cancels
-			id := resting[rng.Intn(len(resting))]
+		if len(resting) > 0 && rng.IntN(10) == 0 { // ~10% cancels
+			id := resting[rng.IntN(len(resting))]
 			cmds = append(cmds, engine.Command{Type: engine.CmdCancel, CancelID: id})
 			continue
 		}
@@ -112,12 +112,12 @@ func buildCommands(rng *rand.Rand, n int) []engine.Command {
 
 		o := engine.Order{
 			ID:       nextID,
-			AgentID:  agents[rng.Intn(len(agents))],
-			Side:     engine.Side(rng.Intn(2)),
+			AgentID:  agents[rng.IntN(len(agents))],
+			Side:     engine.Side(rng.IntN(2)),
 			Type:     engine.Limit,
 			TIF:      engine.Day,
-			Price:    int64(9900 + rng.Intn(21)),
-			Quantity: int64(1 + rng.Intn(200)),
+			Price:    int64(9900 + rng.IntN(21)),
+			Quantity: int64(1 + rng.IntN(200)),
 		}
 
 		resting = append(resting, o.ID)

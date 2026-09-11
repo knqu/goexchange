@@ -7,9 +7,13 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strconv"
 	"strings"
 	"sync"
+	"time"
 
+	"github.com/knqu/goexchange/internal/agents"
+	"github.com/knqu/goexchange/internal/agents/strategies"
 	"github.com/knqu/goexchange/internal/engine"
 	"github.com/knqu/goexchange/internal/execution"
 	"github.com/knqu/goexchange/internal/feed"
@@ -21,16 +25,40 @@ func main() {
 	// parse command-line options into variables
 
 	symbolsFlag := flag.String("symbols", "ACME", "comma-separated list of symbols available for trading")
-	addressFlag := flag.String("address", "localhost:8080", "HTTP listen address")
+	agentIDsFlag := flag.String("agentIDs", "1", "comma-separated list of agent IDs")
+	gatewayAddressFlag := flag.String("gatewayAddress", "localhost:8080", "gateway listen address (HTTP)")
+	feedAddressFlag := flag.String("feedAddress", "ws://localhost:8080/ws", "market data feed address (WebSocket)")
 	exchangeBufFlag := flag.Int("exchangeBuf", 4096, "per-engine commands/events channel buffer size")
-	messagesBufFlag := flag.Int("messagesBuf", 256, "per-subscriber messages channel buffer size")
+	fillsBufFlag := flag.Int("fillsBuf", 1024, "per-agent fills channel buffer size")
+	feedBufFlag := flag.Int("feedBuf", 256, "per-subscriber market data messages channel buffer size")
+	startingCashFlag := flag.Int64("startingCash", 1_000_000, "starting cash given to each agent")
+	fastTickFlag := flag.Duration("fastTick", 200*time.Millisecond, "agent fast (trading) loop interval")
+	slowTickFlag := flag.Duration("slowTick", 10*time.Second, "agent slow (thinking) loop interval")
 
 	flag.Parse()
 
 	symbols := strings.Split(*symbolsFlag, ",")
-	address := *addressFlag
+
+	unconverted := strings.Split(*agentIDsFlag, ",")
+	agentIDs := make([]engine.AgentID, len(unconverted))
+	for i, str := range unconverted {
+		converted, err := strconv.Atoi(str)
+		if err != nil {
+			log.Fatalf("converting agent id to int: %v", err)
+		}
+		agentIDs[i] = engine.AgentID(converted)
+	}
+
+	gatewayAddress := *gatewayAddressFlag
+	feedAddress := *feedAddressFlag
+
 	exchangeBuf := *exchangeBufFlag
-	messagesBuf := *messagesBufFlag
+	fillsBuf := *fillsBufFlag
+	feedBuf := *feedBufFlag
+
+	startingCash := *startingCashFlag
+	fastTick := *fastTickFlag
+	slowTick := *slowTickFlag
 
 	// create /journals directory if it doesn't already exist
 
@@ -140,14 +168,50 @@ func main() {
 
 	exchange.Run(ctx)
 
-	gateway := gateway.NewGateway(exchange, aggregators, messagesBuf, maxOrderID)
+	gw := gateway.NewGateway(exchange, aggregators, feedBuf, maxOrderID)
 	go func() {
-		if err := gateway.Serve(address); err != nil && err != http.ErrServerClosed {
+		if err := gw.Serve(gatewayAddress); err != nil && err != http.ErrServerClosed {
 			log.Fatalf("server error: %v", err)
 		}
 	}()
 
-	log.Printf("gateway listening on %s", address)
+	log.Printf("gateway listening on %s", gatewayAddress)
+
+	// create per-symbol feed clients (shared across agents to reduce load on broadcast hub; safe due to locks)
+
+	feeds := make(map[string]*feed.Client, len(symbols))
+	for _, symbol := range symbols {
+		client := feed.NewClient(feedAddress+"?symbol="+symbol, feedBuf)
+		go client.Run(ctx)
+		feeds[symbol] = client
+	}
+
+	// initialize agents one-by-one, creating their strategies and registering them with the distributor before running
+
+	var agentGroup sync.WaitGroup
+
+	for _, agentID := range agentIDs {
+		defaultPolicy := agents.Policy{Participation: true, Bias: 0, RiskAppetite: 0.5, Aggression: 0.25}
+
+		agentStrategies := make(map[string]agents.Strategy, len(symbols))
+		for _, symbol := range symbols {
+			agentStrategies[symbol] = strategies.NewNoise(0.5, 10, 10000, 20, uint64(agentID))
+		}
+
+		fills := distributor.Register(agentID, fillsBuf)
+
+		agent := agents.NewAgent(
+			agentID, symbols, startingCash, agents.Stub{}, defaultPolicy,
+			agentStrategies, feeds, fills, agents.NewGatewayClient("http://"+gatewayAddress, agentID),
+		)
+
+		agentGroup.Add(1)
+		go func() {
+			defer agentGroup.Done()
+			agent.Run(ctx, fastTick, slowTick)
+			// fastTick defaults to 5 times a second; slowTick defaults to once every 10 seconds
+		}()
+	}
 
 	// wait for interrupt signal (ctrl+c) or kill switch (cancel() called from within a running engine)
 
@@ -164,6 +228,7 @@ func main() {
 
 	// gracefully shut down exchange, close distributor (and all fills channels), and close all journal writers
 
+	agentGroup.Wait()      // wait for agents to finish submitting to exchange (not strictly necessary)
 	<-exchange.Done()      // wait for engines to drain buffered commands and exchange to close events channels
 	fanoutGroup.Wait()     // wait for fan-out to drain and process buffered events, sending them to an aggregator
 	aggregatorGroup.Wait() // wait for aggregators to drain their aggregations channel and broadcast to subscribers

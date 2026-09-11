@@ -140,7 +140,7 @@ func (b *Book) rest(o *Order) {
 	b.byID[o.ID] = &restingRef{order: o, elem: elem, side: bs, level: lvl}
 }
 
-// cancel removes a resting order, returning false if the ID isn't resting (already filled/cancelled or never existed).
+// cancel removes a resting order, returning false if the ID isn't resting (already filled/canceled or never existed).
 func (b *Book) cancel(id OrderID) (*Order, bool) {
 	ref, ok := b.byID[id]
 	if !ok {

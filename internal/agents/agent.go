@@ -21,8 +21,8 @@ type Agent struct {
 	policies   map[string]Policy
 	strategies map[string]Strategy
 
-	feeds map[string]*feed.Client
-	fills <-chan execution.Fill
+	feeds map[string]*feed.Client // per-symbol feeds (from accumulator)
+	fills <-chan execution.Fill   // agent-wide fills (from distributor)
 	gw    *GatewayClient
 
 	resting map[string]map[engine.OrderID]int64 // remaining quantity for resting orders (allows agents to cancel)

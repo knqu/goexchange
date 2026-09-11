@@ -234,7 +234,7 @@ func TestRestAndCancel(t *testing.T) {
 				t.Fatalf("cancel ok = %v, want %v", ok, tc.wantCancelOK)
 			}
 			if ok && o.ID != tc.cancel {
-				t.Fatalf("cancelled order id = %d, want %d", o.ID, tc.cancel)
+				t.Fatalf("canceled order id = %d, want %d", o.ID, tc.cancel)
 			}
 			if err := b.audit(); err != nil {
 				t.Fatalf("invariants broken after cancel: %v", err)
@@ -298,7 +298,7 @@ func TestCancelPartiallyFilled(t *testing.T) {
 	}
 
 	if o.Remaining != 40 {
-		t.Fatalf("cancelled order remaining = %d, want 40", o.Remaining)
+		t.Fatalf("canceled order remaining = %d, want 40", o.Remaining)
 	}
 	if got := b.bids.byPrice[9950].volume; got != 100 {
 		t.Fatalf("level volume after cancel = %d, want 100 (140 - 40)", got)

@@ -56,7 +56,7 @@ func TestConcurrentSubmitters(t *testing.T) {
 	}
 }
 
-// TestGracefulShutdownDrainsPendingCommands verifies that when the context is cancelled
+// TestGracefulShutdownDrainsPendingCommands verifies that when the context is canceled
 // with commands still buffered in cmds, Engine.Run() processes all of them before exiting.
 func TestGracefulShutdownDrainsPendingCommands(t *testing.T) {
 	const n = 500 // number of CmdSubmits

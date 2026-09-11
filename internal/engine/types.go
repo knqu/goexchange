@@ -46,8 +46,8 @@ func (ot OrderType) String() string {
 type TIF uint8 // time in force
 
 const (
-	Day TIF = iota // day: rest in the book until filled or cancelled
-	IOC            // immediate-or-cancel: attempt to execute immediately; any unfilled portion is cancelled
+	Day TIF = iota // day: rest in the book until filled or canceled
+	IOC            // immediate-or-cancel: attempt to execute immediately; any unfilled portion is canceled
 	FOK            // fill-or-kill: attempt to completely fill immediately; if impossible, cancel the entire order
 )
 
