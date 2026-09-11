@@ -43,6 +43,14 @@ func NewPortfolio(cash int64) *Portfolio {
 	return &Portfolio{Cash: cash, Positions: make(map[string]*Position)}
 }
 
+// Position returns the amount of the given symbol currently held in the portfolio.
+func (p *Portfolio) Position(symbol string) int64 {
+	if pos, ok := p.Positions[symbol]; !ok {
+		return pos.Quantity
+	}
+	return 0
+}
+
 // OnFill updates the portfolio's internal positions ledger given a confirmed order execution.
 func (p *Portfolio) OnFill(fill execution.Fill) {
 	pos, ok := p.Positions[fill.Symbol]

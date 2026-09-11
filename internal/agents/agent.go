@@ -96,8 +96,14 @@ func (a *Agent) tick() {
 		}
 
 		snapshot := a.snapshot(symbol)
+		position := a.portfolio.Position(symbol)
 
-		for _, action := range a.strategies[symbol].OnTick(snapshot, policy) {
+		resting := make([]engine.OrderID, 0, len(a.resting[symbol]))
+		for orderID := range a.resting[symbol] {
+			resting = append(resting, orderID)
+		}
+
+		for _, action := range a.strategies[symbol].OnTick(snapshot, policy, position, resting) {
 			id, err := a.gw.Do(symbol, action)
 			if err != nil {
 				log.Printf("agent %d: %v", a.id, err)

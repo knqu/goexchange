@@ -25,7 +25,7 @@ func NewNoise(rate float64, size, seedPrice, band int64, seed uint64) *Noise {
 	}
 }
 
-func (n *Noise) OnTick(market agents.MarketSnapshot, policy agents.Policy) []agents.Action {
+func (n *Noise) OnTick(market agents.MarketSnapshot, policy agents.Policy, position int64, resting []engine.OrderID) []agents.Action {
 	if n.rng.Float64() > n.Rate {
 		return nil
 	}
