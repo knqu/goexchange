@@ -1,0 +1,47 @@
+# Configure one entry per agent in the fleet, each of which runs one strategy instance per symbol.
+# Note that all dollar amounts should be entered in integer ticks, where one tick equals one cent.
+
+defaults:
+  cash: 100000000 # $1,000,000.00
+  fast_tick: 200ms
+  slow_tick: 10s
+  policy:
+    participation: true # whether an agent chooses to participate in trading
+    bias: 0 # [-1, 1]: bearish to bullish
+    risk_appetite: 0.5 # [0, 1]: order quantity scaling
+    aggression: 0.25 # [0, 1]: resting (<0.5) vs. crossing (>=0.5) tendency
+
+agents:
+  # noise agents (generate random orders that boostrap the book + provide order flow)
+  - id: 1
+    strategy: noise
+    strategy_params:
+      rate: 0.5 # probability of generating an order on each tick (0-1)
+      size: 10 # max quantity for each order (scaled by policy.RiskAppetite)
+      seed_price: 10000 # base price for first tick (used until market has both sides)
+      band: 20 # max price offset from base price (cannot be 0)
+  - id: 2
+    strategy: noise
+    strategy_params:
+      rate: 0.5
+      size: 10
+      seed_price: 10000
+      band: 20
+  - id: 3
+    strategy: noise
+    fast_tick: 500ms # slower but chunkier
+    strategy_params:
+      rate: 0.3
+      size: 20
+      seed_price: 10000
+      band: 40
+
+  # market maker (quotes both sides to generate liquidity)
+  - id: 4
+    strategy: marketmaker
+    cash: 1000000000 # needs more cash to carry inventory
+    strategy_params:
+      half_spread: 2 # ticks away from fair value to quote
+      size: 100 # max quantity for each order (scaled by policy.RiskAppetite)
+      max_position: 1000 # threshold to stop quoting (limits inventory risk)
+      skew_per_lot: 0.02 # ticks to shift quotes per unit of inventory (mitigates inventory risk)

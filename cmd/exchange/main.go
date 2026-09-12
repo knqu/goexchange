@@ -7,10 +7,8 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
-	"strconv"
 	"strings"
 	"sync"
-	"time"
 
 	"github.com/knqu/goexchange/internal/agents"
 	"github.com/knqu/goexchange/internal/agents/strategies"
@@ -25,28 +23,20 @@ func main() {
 	// parse command-line options into variables
 
 	symbolsFlag := flag.String("symbols", "ACME", "comma-separated list of symbols available for trading")
-	agentIDsFlag := flag.String("agentIDs", "1", "comma-separated list of agent IDs")
+	fleetPathFlag := flag.String("fleet", "configs/agents.yaml", "path to agent fleet config")
 	gatewayAddressFlag := flag.String("gatewayAddress", "localhost:8080", "gateway listen address (HTTP)")
 	feedAddressFlag := flag.String("feedAddress", "ws://localhost:8080/ws", "market data feed address (WebSocket)")
 	exchangeBufFlag := flag.Int("exchangeBuf", 4096, "per-engine commands/events channel buffer size")
 	fillsBufFlag := flag.Int("fillsBuf", 1024, "per-agent fills channel buffer size")
 	feedBufFlag := flag.Int("feedBuf", 256, "per-subscriber market data messages channel buffer size")
-	startingCashFlag := flag.Int64("startingCash", 1_000_000, "starting cash given to each agent")
-	fastTickFlag := flag.Duration("fastTick", 200*time.Millisecond, "agent fast (trading) loop interval")
-	slowTickFlag := flag.Duration("slowTick", 10*time.Second, "agent slow (thinking) loop interval")
 
 	flag.Parse()
 
 	symbols := strings.Split(*symbolsFlag, ",")
 
-	unconverted := strings.Split(*agentIDsFlag, ",")
-	agentIDs := make([]engine.AgentID, len(unconverted))
-	for i, str := range unconverted {
-		converted, err := strconv.Atoi(str)
-		if err != nil {
-			log.Fatalf("converting agent id to int: %v", err)
-		}
-		agentIDs[i] = engine.AgentID(converted)
+	fleet, err := agents.LoadFleet(*fleetPathFlag)
+	if err != nil {
+		log.Fatalf("loading fleet: %v", err)
 	}
 
 	gatewayAddress := *gatewayAddressFlag
@@ -55,10 +45,6 @@ func main() {
 	exchangeBuf := *exchangeBufFlag
 	fillsBuf := *fillsBufFlag
 	feedBuf := *feedBufFlag
-
-	startingCash := *startingCashFlag
-	fastTick := *fastTickFlag
-	slowTick := *slowTickFlag
 
 	// create /journals directory if it doesn't already exist
 
@@ -190,26 +176,34 @@ func main() {
 
 	var agentGroup sync.WaitGroup
 
-	for _, agentID := range agentIDs {
-		defaultPolicy := agents.Policy{Participation: true, Bias: 0, RiskAppetite: 0.5, Aggression: 0.25}
+	for _, agent := range fleet.Agents {
+		defaultPolicy := agents.Policy{
+			Participation: agent.DefaultPolicy.Participation,
+			Bias:          agent.DefaultPolicy.Bias,
+			RiskAppetite:  agent.DefaultPolicy.RiskAppetite,
+			Aggression:    agent.DefaultPolicy.Aggression,
+		}
 
 		agentStrategies := make(map[string]agents.Strategy, len(symbols))
 		for _, symbol := range symbols {
-			agentStrategies[symbol] = strategies.NewNoise(0.5, 10, 10000, 20, uint64(agentID))
+			strategy, err := strategies.New(agent.Strategy, agent.StrategyParams, agent.ID, symbol)
+			if err != nil {
+				log.Fatalf("agent %d: %v", agent.ID, err)
+			}
+			agentStrategies[symbol] = strategy
 		}
 
-		fills := distributor.Register(agentID, fillsBuf)
+		fills := distributor.Register(agent.ID, fillsBuf)
 
-		agent := agents.NewAgent(
-			agentID, symbols, startingCash, agents.Stub{}, defaultPolicy,
-			agentStrategies, feeds, fills, agents.NewGatewayClient("http://"+gatewayAddress, agentID),
+		runnableAgent := agents.NewAgent(
+			agent.ID, symbols, agent.Cash, agents.Stub{}, defaultPolicy,
+			agentStrategies, feeds, fills, agents.NewGatewayClient("http://"+gatewayAddress, agent.ID),
 		)
 
 		agentGroup.Add(1)
 		go func() {
 			defer agentGroup.Done()
-			agent.Run(ctx, fastTick, slowTick)
-			// fastTick defaults to 5 times a second; slowTick defaults to once every 10 seconds
+			runnableAgent.Run(ctx, agent.FastTick, agent.SlowTick)
 		}()
 	}
 

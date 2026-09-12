@@ -9,7 +9,7 @@ import (
 
 type Noise struct {
 	Rate      float64 // probability of generating an order on each tick (0-1)
-	Size      int64   // base quantity for each order (scaled by policy.RiskAppetite)
+	Size      int64   // max quantity for each order (scaled by policy.RiskAppetite)
 	SeedPrice int64   // base price for first tick (used until market has both sides)
 	Band      int64   // max price offset from base price (cannot be 0)
 	rng       *rand.Rand

@@ -45,7 +45,7 @@ func NewPortfolio(cash int64) *Portfolio {
 
 // Position returns the amount of the given symbol currently held in the portfolio.
 func (p *Portfolio) Position(symbol string) int64 {
-	if pos, ok := p.Positions[symbol]; !ok {
+	if pos, ok := p.Positions[symbol]; ok {
 		return pos.Quantity
 	}
 	return 0

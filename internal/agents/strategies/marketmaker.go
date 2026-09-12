@@ -6,18 +6,18 @@ import (
 )
 
 type MarketMaker struct {
-	HalfSpread  int64 // ticks away from mid to quote
-	Size        int64 // base quantity for each order (scaled by policy.RiskAppetite)
-	SkewPerLot  int64 // ticks to shift quotes per unit of inventory (inventory risk mitigation)
-	MaxPosition int64 // threshold to stop quoting (secondary inventory risk mitigation)
+	HalfSpread  int64   // ticks away from fair value to quote
+	Size        int64   // max quantity for each order (scaled by policy.RiskAppetite)
+	MaxPosition int64   // threshold to stop quoting (limits inventory risk)
+	SkewPerLot  float64 // ticks to shift quotes per unit of inventory (mitigates inventory risk)
 }
 
-func NewMarketMaker(halfSpread, size, skewPerLot, maxPosition int64) *MarketMaker {
+func NewMarketMaker(halfSpread, size, maxPosition int64, skewPerLot float64) *MarketMaker {
 	return &MarketMaker{
 		HalfSpread:  halfSpread,
 		Size:        size,
-		SkewPerLot:  skewPerLot,
 		MaxPosition: maxPosition,
+		SkewPerLot:  skewPerLot,
 	}
 }
 
@@ -34,11 +34,11 @@ func (m *MarketMaker) OnTick(market agents.MarketSnapshot, policy agents.Policy,
 	}
 
 	// calculate quoted price from market bid/ask, conviction, and inventory risk mitigations
-	fair := market.Mid() + int64(policy.Bias*float64(m.HalfSpread)) - (position * m.SkewPerLot)
+	fair := market.Mid() + int64(policy.Bias*float64(m.HalfSpread)) - int64(float64(position)*m.SkewPerLot)
 
 	size := int64(float64(m.Size) * policy.RiskAppetite)
 	if size < 1 {
-		return actions // still issue cancels but but don't re-quote
+		return actions // still issue cancels but don't re-quote
 	}
 
 	if position < m.MaxPosition {
