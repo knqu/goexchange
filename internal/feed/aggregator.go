@@ -95,6 +95,17 @@ func NewAggregator() *Aggregator {
 	}
 }
 
+// Seed initializes the aggregator's book from a restored depth snapshot.
+// Must be called before Run(), as concurrent use with the aggregator running will result in a race.
+func (a *Aggregator) Seed(depth engine.DepthSnapshot) {
+	for _, level := range depth.Bids {
+		a.bids[level.Price] = level.Quantity
+	}
+	for _, level := range depth.Asks {
+		a.asks[level.Price] = level.Quantity
+	}
+}
+
 // Run starts the aggregator's main loop, processing engine events and handling subscription requests.
 func (a *Aggregator) Run(events <-chan engine.Event) {
 	for {

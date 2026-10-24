@@ -4,6 +4,7 @@ import (
 	"context"
 	"flag"
 	"log"
+	"math"
 	"net/http"
 	"os"
 	"os/signal"
@@ -122,8 +123,13 @@ func main() {
 	var aggregatorGroup sync.WaitGroup
 
 	for symbol, ch := range exchange.Events() {
-		// create a new aggregator for each symbol
+		// create a new aggregator for each symbol, seeding with book depth
 		aggregator := feed.NewAggregator()
+		depth, err := exchange.Depth(symbol, math.MaxInt)
+		if err != nil {
+			log.Fatal(err)
+		}
+		aggregator.Seed(depth)
 		aggregators[symbol] = aggregator
 		aggregatorGroup.Add(1)
 
