@@ -65,9 +65,9 @@ func (d *Distributor) GenerateFill(symbol string, trade engine.Event) {
 // send looks up the fills channel associated with the given agentID, and, if it exists, sends the given fill into it.
 func (d *Distributor) send(agentID engine.AgentID, fill Fill) {
 	d.mu.RLock()
-	ch, ok := d.fills[agentID]
-	d.mu.RUnlock()
+	defer d.mu.RUnlock() // hold read lock to prevent racing unregistrations (which close the agent's fills channel)
 
+	ch, ok := d.fills[agentID]
 	if !ok {
 		return // skip if agent hasn't been registered
 	}
@@ -76,6 +76,7 @@ func (d *Distributor) send(agentID engine.AgentID, fill Fill) {
 	case ch <- fill:
 	default:
 		// todo: evict agents who can't keep up (to prevent client-side state corruption)
+		// evict from outside send (evictions from within deadlock because unregistrations need the write lock)
 		log.Printf("execution: dropped fill for agent %d due to full buffer", agentID)
 	}
 }
