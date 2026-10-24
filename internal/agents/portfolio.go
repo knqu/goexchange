@@ -14,6 +14,7 @@ type Position struct {
 }
 
 // AverageCost returns the average cost per unit of the position, or zero if the position is flat.
+// Returned averages are approximate; use for display only, never to compute position state.
 func (p *Position) AverageCost() int64 {
 	if p.Quantity == 0 {
 		return 0
@@ -74,15 +75,14 @@ func (p *Portfolio) OnFill(fill execution.Fill) {
 		pos.TotalCost += fill.Price * delta
 	case abs(delta) <= abs(pos.Quantity):
 		// reduce an existing position (selling when long / buying when short)
-		average := pos.AverageCost()
-		pos.Quantity += delta
 		closed := -delta
-		pos.TotalCost -= average * closed
-		pos.Realized += (fill.Price - average) * closed
+		closedCost := pos.TotalCost * closed / pos.Quantity // integer multiplication must come before division
+		pos.Quantity -= closed
+		pos.TotalCost -= closedCost
+		pos.Realized += (fill.Price * closed) - closedCost
 	default:
 		// cross through zero (sell more than owned when long, or buy more than owed when short)
-		average := pos.AverageCost()
-		pos.Realized += (fill.Price - average) * pos.Quantity
+		pos.Realized += (fill.Price * pos.Quantity) - pos.TotalCost
 		remainder := pos.Quantity + delta
 		pos.Quantity = remainder
 		pos.TotalCost = fill.Price * remainder
@@ -129,7 +129,7 @@ func (p *Portfolio) Summary(lastPrices map[string]int64) PortfolioSummary {
 
 		summary.TotalRealized += pos.Realized
 
-		if last, ok := lastPrices[symbol]; ok {
+		if last, ok := lastPrices[symbol]; ok && last > 0 {
 			ps.Unrealized = pos.Unrealized(last)
 			summary.TotalUnrealized += ps.Unrealized
 			summary.NetWorth += pos.MarketValue(last)
