@@ -10,6 +10,7 @@ import (
 	"os/signal"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/knqu/goexchange/internal/agents"
 	"github.com/knqu/goexchange/internal/agents/strategies"
@@ -161,8 +162,9 @@ func main() {
 	exchange.Run(ctx)
 
 	gw := gateway.NewGateway(exchange, aggregators, feedBuf, maxOrderID)
+	server := &http.Server{Addr: gatewayAddress, Handler: gw.Handler()}
 	go func() {
-		if err := gw.Serve(gatewayAddress); err != nil && err != http.ErrServerClosed {
+		if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 			log.Fatalf("server error: %v", err)
 		}
 	}()
@@ -221,10 +223,20 @@ func main() {
 	select {
 	case <-sig:
 		log.Printf("exchange shutting down (interrupt received)")
-		cancel()
 	case <-exchange.Done():
 		log.Printf("exchange shutting down (kill switch; check for journal failure?)")
 	}
+
+	// stop accepting requests before engines start draining, so commands cannot be queued (yet 202 acknowledged)
+	// also guarantees no commands are queued mid-drain, which would prevent the drain from completing
+
+	shutdownCtx, cancelTimeout := context.WithTimeout(context.Background(), 5*time.Second)
+	if err := server.Shutdown(shutdownCtx); err != nil { // skips WebSocket connections (which end on disconnect/exit)
+		log.Printf("gateway shutdown: %v", err)
+	}
+	cancelTimeout()
+
+	cancel() // stop engines, agents, and feed clients (no-op if kill switch already canceled)
 
 	// gracefully shut down exchange, close distributor (and all fills channels), and close all journal writers
 

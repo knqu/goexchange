@@ -51,8 +51,8 @@ func NewGateway(exchange *engine.Exchange, aggregators map[string]*feed.Aggregat
 	return g
 }
 
-// Serve starts the HTTP server on the given address and handles incoming requests.
-func (g *Gateway) Serve(addr string) error {
+// Handler returns the gateway's routes; caller owns http.Server and its lifecycle/shutdown.
+func (g *Gateway) Handler() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("POST /orders", g.handleNewOrder)
 	mux.HandleFunc("DELETE /orders/{id}", g.handleCancelOrder)
@@ -60,7 +60,7 @@ func (g *Gateway) Serve(addr string) error {
 	mux.HandleFunc("POST /admin/symbols/{symbol}/resume", g.handleResumeTrading)
 	mux.HandleFunc("GET /books/{symbol}", g.handleDepthQuery)
 	mux.HandleFunc("GET /ws", g.handleWS)
-	return http.ListenAndServe(addr, mux)
+	return mux
 }
 
 // --- gateway handlers ---
@@ -185,7 +185,14 @@ func (g *Gateway) handleDepthQuery(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	depthSnapshot := <-reply
+	var depthSnapshot engine.DepthSnapshot
+	select {
+	case depthSnapshot = <-reply:
+	case <-g.exchange.Done(): // stop waiting for a reply if the engine has already shut down
+		http.Error(w, "exchange stopped", 503)
+		return
+	}
+
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
 	json.NewEncoder(w).Encode(depthSnapshot)
