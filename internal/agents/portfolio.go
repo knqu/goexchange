@@ -1,6 +1,9 @@
 package agents
 
 import (
+	"slices"
+	"strings"
+
 	"github.com/knqu/goexchange/internal/engine"
 	"github.com/knqu/goexchange/internal/execution"
 )
@@ -99,23 +102,24 @@ func abs(x int64) int64 {
 // --- portfolio summary ---
 
 type PositionSummary struct {
-	Symbol      string
-	Quantity    int64
-	AverageCost int64
-	Realized    int64 // profit/loss of closed positions (locked-in)
-	Unrealized  int64 // profit/loss of open positions based on latest market price
+	Symbol      string `json:"symbol"`
+	Quantity    int64  `json:"quantity"`
+	AverageCost int64  `json:"average_cost"`
+	Realized    int64  `json:"realized"`   // profit/loss of closed positions (locked-in)
+	Unrealized  int64  `json:"unrealized"` // profit/loss of open positions based on latest market price
 }
 
 type PortfolioSummary struct {
-	Cash            int64
-	Positions       []PositionSummary
-	TotalRealized   int64
-	TotalUnrealized int64
-	NetWorth        int64    // cash + total market value of all open positions
-	Unpriced        []string // positions with no last price; excluded from TotalUnrealized and NetWorth sums
+	Cash            int64             `json:"cash"`
+	Positions       []PositionSummary `json:"positions"`
+	TotalRealized   int64             `json:"total_realized"`
+	TotalUnrealized int64             `json:"total_unrealized"`
+	NetWorth        int64             `json:"net_worth"` // cash + total market value of all open positions
+	Unpriced        []string          `json:"unpriced"` // positions with no last price; excluded from TotalUnrealized and NetWorth sums
 }
 
 // Summary generates a snapshot of the portfolio's state and performance given the last market price for each symbol.
+// Slices of positions and unpriced positions are sorted by symbol.
 func (p *Portfolio) Summary(lastPrices map[string]int64) PortfolioSummary {
 	summary := PortfolioSummary{Cash: p.Cash, NetWorth: p.Cash}
 
@@ -139,6 +143,12 @@ func (p *Portfolio) Summary(lastPrices map[string]int64) PortfolioSummary {
 
 		summary.Positions = append(summary.Positions, ps)
 	}
+
+	// sort Positions and Unpriced for determinism (map iteration order is random)
+	slices.SortFunc(summary.Positions, func(x, y PositionSummary) int {
+		return strings.Compare(x.Symbol, y.Symbol)
+	})
+	slices.Sort(summary.Unpriced)
 
 	return summary
 }
