@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"slices"
 	"sync"
+	"time"
 
 	"github.com/coder/websocket"
 	"github.com/knqu/goexchange/internal/engine"
@@ -44,12 +45,13 @@ func NewClient(url string, recentSize int) *Client {
 // Run connects and processes messages until canceled; it should be run in a separate goroutine.
 func (c *Client) Run(ctx context.Context) {
 	for {
-		if err := c.connectAndRead(ctx); err != nil {
-			if ctx.Err() != nil {
-				return // context canceled
-			}
-			continue // connection dropped; reconnect
+		c.connectAndRead(ctx) // keep reading until stopped
+
+		if ctx.Err() != nil {
+			return // context canceled
 		}
+
+		time.Sleep(500 * time.Millisecond) // connection dropped; wait 500ms before reconnecting
 	}
 }
 
@@ -60,6 +62,7 @@ func (c *Client) connectAndRead(ctx context.Context) error {
 		return err
 	}
 	defer conn.Close(websocket.StatusNormalClosure, "")
+	conn.SetReadLimit(-1) // remove read limit (by default, any message over 32kb is refused)
 
 	for {
 		_, data, err := conn.Read(ctx) // blocks until message or disconnect

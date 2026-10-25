@@ -1,7 +1,9 @@
 package gateway
 
 import (
+	"context"
 	"net/http"
+	"time"
 
 	"github.com/coder/websocket"
 )
@@ -23,17 +25,25 @@ func (g *Gateway) handleWS(w http.ResponseWriter, r *http.Request) {
 	}
 	defer conn.Close(websocket.StatusNormalClosure, "")
 
+	ctx := conn.CloseRead(r.Context()) // read incoming frames so client closes/disconnects cancel ctx
+
 	sub := aggregator.Subscribe(g.messagesBuf)
 	defer aggregator.Unsubscribe(sub) // unsubscribe on disconnect (closes subscriber's messages channel)
 
-	ctx := r.Context() // canceled when the client disconnects
 	for {
 		select {
 		case msg, ok := <-sub.Messages:
 			if !ok {
 				return
 			}
-			if err := conn.Write(ctx, websocket.MessageText, msg); err != nil {
+
+			// set a 5s timeout on every write to prevent blocking on a client whose tcp buffer is full
+			writeCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+			err := conn.Write(writeCtx, websocket.MessageText, msg)
+			cancel()
+
+			// exit handler if timeout expired or write otherwise failed (connection closed by client or broken)
+			if err != nil {
 				return
 			}
 		case <-ctx.Done():
