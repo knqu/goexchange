@@ -3,6 +3,7 @@ package agents
 import (
 	"context"
 	"log"
+	"sync/atomic"
 	"time"
 
 	"github.com/knqu/goexchange/internal/engine"
@@ -25,7 +26,8 @@ type Agent struct {
 	fills <-chan execution.Fill   // agent-wide fills from distributor
 	gw    *GatewayClient
 
-	resting map[string]map[engine.OrderID]int64 // remaining quantity for resting orders (allows agents to cancel)
+	resting     map[string]map[engine.OrderID]int64 // remaining quantity for resting orders (allows agents to cancel)
+	observation atomic.Pointer[Observation]
 }
 
 // NewAgent initializes a new agent; defaultPolicy is a placeholder policy seeded before the first Brain.Think().
@@ -58,12 +60,20 @@ func (a *Agent) Run(ctx context.Context, fastTick time.Duration, slowTick time.D
 	defer fast.Stop()
 	defer slow.Stop()
 
+	observer := time.NewTicker(time.Second)
+	defer observer.Stop()
+
+	a.publishObservation(true)
+	defer a.publishObservation(false)
+
 	for {
 		select {
 		case <-fast.C: // trading loop
 			a.tick()
 		case <-slow.C: // policy deliberation loop
 			a.think(ctx)
+		case <-observer.C:
+			a.publishObservation(true)
 		case fill, ok := <-a.fills: // update portfolio and resting orders when a new fill is received
 			if !ok {
 				a.fills = nil
