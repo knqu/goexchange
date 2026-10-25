@@ -30,6 +30,9 @@ func (g *Gateway) handleWS(w http.ResponseWriter, r *http.Request) {
 	sub := aggregator.Subscribe(g.messagesBuf)
 	defer aggregator.Unsubscribe(sub) // unsubscribe on disconnect (closes subscriber's messages channel)
 
+	heartbeat := time.NewTicker(10 * time.Second)
+	defer heartbeat.Stop()
+
 	for {
 		select {
 		case msg, ok := <-sub.Messages:
@@ -44,6 +47,13 @@ func (g *Gateway) handleWS(w http.ResponseWriter, r *http.Request) {
 
 			// exit handler if timeout expired or write otherwise failed (connection closed by client or broken)
 			if err != nil {
+				return
+			}
+		case <-heartbeat.C:
+			heartbeatCtx, cancelHeartbeat := context.WithTimeout(ctx, 5*time.Second)
+			heartbeatErr := conn.Write(heartbeatCtx, websocket.MessageText, []byte(`{"type":"heartbeat"}`))
+			cancelHeartbeat()
+			if heartbeatErr != nil {
 				return
 			}
 		case <-ctx.Done():
