@@ -15,7 +15,7 @@ type Observation struct {
 	Policies  map[string]Policy `json:"policies"`
 }
 
-// publishObservation builds a new snapshot of the agent's state; must be called from the agent's Run() goroutine.
+// publishObservation builds a new observation of the agent's state; must be called from the agent's Run() goroutine.
 func (a *Agent) publishObservation(running bool) {
 	lastPrices := make(map[string]int64, len(a.symbols))
 	for _, symbol := range a.symbols {
@@ -31,7 +31,7 @@ func (a *Agent) publishObservation(running bool) {
 	})
 }
 
-// Observe returns the latest published snapshot (which is shared and must not be modified) or nil.
+// Observe returns the latest published observation (which is shared and must not be modified) or nil.
 func (a *Agent) Observe() *Observation {
 	return a.observation.Load()
 }

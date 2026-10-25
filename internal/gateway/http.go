@@ -3,7 +3,9 @@ package gateway
 import (
 	"encoding/json"
 	"fmt"
+	"maps"
 	"net/http"
+	"slices"
 	"strconv"
 	"sync/atomic"
 
@@ -51,16 +53,15 @@ func NewGateway(exchange *engine.Exchange, aggregators map[string]*feed.Aggregat
 	return g
 }
 
-// Handler returns the gateway's routes; caller owns http.Server and its lifecycle/shutdown.
-func (g *Gateway) Handler() http.Handler {
-	mux := http.NewServeMux()
+// RegisterRoutes adds the gateway's routes to mux; caller owns both mux and http.Server (and its lifecycle/shutdown).
+func (g *Gateway) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /orders", g.handleNewOrder)
 	mux.HandleFunc("DELETE /orders/{id}", g.handleCancelOrder)
 	mux.HandleFunc("POST /admin/symbols/{symbol}/halt", g.handleHaltTrading)
 	mux.HandleFunc("POST /admin/symbols/{symbol}/resume", g.handleResumeTrading)
 	mux.HandleFunc("GET /books/{symbol}", g.handleDepthQuery)
 	mux.HandleFunc("GET /ws", g.handleWS)
-	return mux
+	mux.HandleFunc("GET /admin/symbols", g.handleSymbols)
 }
 
 // --- gateway handlers ---
@@ -189,13 +190,21 @@ func (g *Gateway) handleDepthQuery(w http.ResponseWriter, r *http.Request) {
 	select {
 	case depthSnapshot = <-reply:
 	case <-g.exchange.Done(): // stop waiting for a reply if the engine has already shut down
-		http.Error(w, "exchange stopped", 503)
+		http.Error(w, "exchange stopped", http.StatusServiceUnavailable)
 		return
 	}
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
 	json.NewEncoder(w).Encode(depthSnapshot)
+}
+
+func (g *Gateway) handleSymbols(w http.ResponseWriter, r *http.Request) {
+	symbols := slices.Sorted(maps.Keys(g.aggregators)) // all tradeable symbols
+
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Cache-Control", "no-store")
+	json.NewEncoder(w).Encode(map[string][]string{"symbols": symbols})
 }
 
 // --- parsing helpers ---

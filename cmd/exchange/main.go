@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"crypto/rand"
 	"flag"
 	"log"
 	"math"
@@ -14,6 +15,7 @@ import (
 
 	"github.com/knqu/goexchange/internal/agents"
 	"github.com/knqu/goexchange/internal/agents/strategies"
+	"github.com/knqu/goexchange/internal/dashboard"
 	"github.com/knqu/goexchange/internal/engine"
 	"github.com/knqu/goexchange/internal/execution"
 	"github.com/knqu/goexchange/internal/feed"
@@ -157,34 +159,25 @@ func main() {
 		}()
 	}
 
-	// start the exchange (spawn all engine goroutines); then, serve the HTTP gateway from a separate goroutine
+	// start the exchange (spawn all engine goroutines)
 
 	exchange.Run(ctx)
 
-	gw := gateway.NewGateway(exchange, aggregators, feedBuf, maxOrderID)
-	server := &http.Server{Addr: gatewayAddress, Handler: gw.Handler()}
-	go func() {
-		if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-			log.Fatalf("server error: %v", err)
-		}
-	}()
-
-	log.Printf("gateway listening on %s", gatewayAddress)
-
 	// create per-symbol feed clients (shared across agents to reduce load on broadcast hub; safe due to locks)
+	// note that clients are only created here; they don't actually connect until the gateway is serving
 
 	feeds := make(map[string]*feed.Client, len(symbols))
 	for _, symbol := range symbols {
-		client := feed.NewClient(feedAddress+"?symbol="+symbol, feedBuf)
-		go client.Run(ctx)
-		feeds[symbol] = client
+		feeds[symbol] = feed.NewClient(feedAddress+"?symbol="+symbol, feedBuf)
 	}
 
-	// initialize agents one-by-one, creating their strategies and registering them with the distributor before running
+	// build agents; create their strategies, register them with the distributor, and create a dashboard view
+	// note that agents are only built here; they don't actually start running until the gateway is serving
 
-	var agentGroup sync.WaitGroup
+	runnableAgents := make([]*agents.Agent, len(fleet.Agents))
+	fleetView := make([]dashboard.FleetAgent, len(fleet.Agents)) // should never be modified while serving
 
-	for _, agent := range fleet.Agents {
+	for i, agent := range fleet.Agents {
 		defaultPolicy := agents.Policy{
 			Participation: agent.DefaultPolicy.Participation,
 			Bias:          agent.DefaultPolicy.Bias,
@@ -203,15 +196,52 @@ func main() {
 
 		fills := distributor.Register(agent.ID, fillsBuf)
 
-		runnableAgent := agents.NewAgent(
+		runnableAgents[i] = agents.NewAgent(
 			agent.ID, symbols, agent.Cash, agents.Stub{}, defaultPolicy,
 			agentStrategies, feeds, fills, agents.NewGatewayClient("http://"+gatewayAddress, agent.ID),
 		)
 
+		fleetView[i] = dashboard.FleetAgent{
+			Agent:        runnableAgents[i],
+			Strategy:     agent.Strategy,
+			StartingCash: agent.Cash,
+		}
+	}
+
+	// session identifies this exchange run, so dashboard clients can tell when the exchange has restarted
+	session := rand.Text()
+
+	// one router serves both the exchange's public api (gateway) and the simulation's agent observations (dashboard)
+	mux := http.NewServeMux()
+
+	gw := gateway.NewGateway(exchange, aggregators, feedBuf, maxOrderID)
+	gw.RegisterRoutes(mux)
+
+	mux.Handle("GET /admin/agents", dashboard.NewAgentsHandler(session, fleetView))
+
+	// serve the gateway from a separate goroutine
+
+	server := &http.Server{Addr: gatewayAddress, Handler: mux}
+	go func() {
+		if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			log.Fatalf("server error: %v", err)
+		}
+	}()
+
+	log.Printf("gateway listening on %s", gatewayAddress)
+
+	// start previously created feed clients and agents now that the gateway is serving
+
+	for _, client := range feeds {
+		go client.Run(ctx)
+	}
+
+	var agentGroup sync.WaitGroup
+	for i, agent := range fleet.Agents {
 		agentGroup.Add(1)
 		go func() {
 			defer agentGroup.Done()
-			runnableAgent.Run(ctx, agent.FastTick, agent.SlowTick)
+			runnableAgents[i].Run(ctx, agent.FastTick, agent.SlowTick)
 		}()
 	}
 
