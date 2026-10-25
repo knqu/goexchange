@@ -37,3 +37,38 @@ func TestAggregator(t *testing.T) {
 		t.Fatalf("bad post-restore delta: %+v", delta)
 	}
 }
+
+func TestAggregatorHaltStatus(t *testing.T) {
+	aggregator := NewAggregator()
+
+	events := make(chan engine.Event)
+	go aggregator.Run(events)
+	defer close(events) // stops aggregator once test finishes
+
+	sub := aggregator.Subscribe(8)
+	defer aggregator.Unsubscribe(sub)
+	<-sub.Messages // initial (unhalted) snapshot
+
+	// existing subscribers are notified when the engine applies a halt
+	events <- engine.Event{Type: engine.EventHalted}
+
+	var status Status
+	if err := json.Unmarshal(<-sub.Messages, &status); err != nil {
+		t.Fatal(err)
+	}
+	if !status.Halted {
+		t.Fatal("halt not published")
+	}
+
+	// new subscribers learn the current state from their snapshot
+	late := aggregator.Subscribe(8)
+	defer aggregator.Unsubscribe(late)
+
+	var snapshot Snapshot
+	if err := json.Unmarshal(<-late.Messages, &snapshot); err != nil {
+		t.Fatal(err)
+	}
+	if !snapshot.Halted {
+		t.Fatal("snapshot missing halt state")
+	}
+}

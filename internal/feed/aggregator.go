@@ -11,16 +11,19 @@ import (
 
 // --- utility data structures ---
 
+// note: when marshaling to json, use type aliases to copy fields but not methods, preventing infinite recursion
+
 // Snapshot captures the depth of the entire book at a single point in time, with bids and asks ordered best-to-worst.
 // This is used by the consumer to establish a baseline, after which deltas are applied to stay up-to-date.
 type Snapshot struct {
-	Seq  uint64 // seq of last emitted delta
-	Bids []engine.PriceLevel
-	Asks []engine.PriceLevel
+	Seq    uint64 // seq of last emitted delta
+	Halted bool
+	Bids   []engine.PriceLevel
+	Asks   []engine.PriceLevel
 }
 
 func (s Snapshot) MarshalJSON() ([]byte, error) {
-	type alias Snapshot // create new type with same fields but no methods (avoid infinite recursion)
+	type alias Snapshot
 	return json.Marshal(struct {
 		Type string `json:"type"`
 		alias
@@ -36,7 +39,7 @@ type Delta struct {
 }
 
 func (d Delta) MarshalJSON() ([]byte, error) {
-	type alias Delta // create new type with same fields but no methods (avoid infinite recursion)
+	type alias Delta
 	return json.Marshal(struct {
 		Type string `json:"type"`
 		alias
@@ -60,6 +63,19 @@ func (t Trade) MarshalJSON() ([]byte, error) {
 	}{Type: "trade", alias: alias(t)})
 }
 
+// Status announces a change in the symbol's trading state, signaled by an EventHalted or EventResumed.
+type Status struct {
+	Halted bool
+}
+
+func (s Status) MarshalJSON() ([]byte, error) {
+	type alias Status
+	return json.Marshal(struct {
+		Type string `json:"type"`
+		alias
+	}{Type: "status", alias: alias(s)})
+}
+
 // subReq represents a request to subscribe to the aggregator's updates.
 // Subscription requests must be processed in sequence with events because snapshotting reads live maps (bids/asks).
 type subReq struct {
@@ -78,6 +94,7 @@ type Aggregator struct {
 	hub     *broadcast.Hub
 	subReqs chan *subReq
 	seq     uint64
+	halted  bool // halts aren't journaled, so a restored engine (and its aggregator) always starts unhalted
 }
 
 func (a *Aggregator) nextSeq() uint64 {
@@ -154,6 +171,12 @@ func (a *Aggregator) consume(event engine.Event) {
 		a.publishTrade(event.OrderID, event.MakerOrderID, event.Side, event.Price, event.Quantity)
 	case engine.EventCanceled:
 		a.update(a.mapFor(event.Side), event.Side, event.Price, -event.Quantity)
+	case engine.EventHalted:
+		a.halted = true
+		a.publishStatus()
+	case engine.EventResumed:
+		a.halted = false
+		a.publishStatus()
 	}
 }
 
@@ -196,9 +219,10 @@ func (a *Aggregator) sendSnapshot(messages chan<- []byte) {
 	slices.SortFunc(asks, func(x, y engine.PriceLevel) int { return int(x.Price - y.Price) }) // low to high
 
 	b, err := json.Marshal(Snapshot{
-		Seq:  a.seq,
-		Bids: bids,
-		Asks: asks,
+		Seq:    a.seq,
+		Halted: a.halted,
+		Bids:   bids,
+		Asks:   asks,
 	})
 	if err != nil {
 		log.Printf("feed: marshal failed: %v", err)
@@ -233,6 +257,17 @@ func (a *Aggregator) publishTrade(takerOrderID, makerOrderID engine.OrderID, sid
 		Price:        price,
 		Quantity:     quantity,
 	})
+	if err != nil {
+		log.Printf("feed: marshal failed: %v", err)
+		return
+	}
+
+	a.hub.Publish(b)
+}
+
+// publishStatus publishes the symbol's current trading state (halted or unhalted) to all subscribers.
+func (a *Aggregator) publishStatus() {
+	b, err := json.Marshal(Status{Halted: a.halted})
 	if err != nil {
 		log.Printf("feed: marshal failed: %v", err)
 		return
