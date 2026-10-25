@@ -218,6 +218,7 @@ func main() {
 	gw.RegisterRoutes(mux)
 
 	mux.Handle("GET /admin/agents", dashboard.NewAgentsHandler(session, fleetView))
+	mux.Handle("GET /", dashboard.Handler())
 
 	// serve the gateway from a separate goroutine
 
