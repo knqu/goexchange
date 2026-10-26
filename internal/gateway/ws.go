@@ -8,7 +8,7 @@ import (
 	"github.com/coder/websocket"
 )
 
-// handleWS upgrades a subscriber's HTTP connection to WebSocket and sends snapshots/deltas from the aggregator.
+// handleWS upgrades an HTTP connection to WebSocket and streams the symbol's market data feed from the aggregator.
 func (g *Gateway) handleWS(w http.ResponseWriter, r *http.Request) {
 	symbol := r.URL.Query().Get("symbol")
 

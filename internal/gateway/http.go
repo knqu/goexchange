@@ -2,18 +2,17 @@ package gateway
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"maps"
 	"net/http"
 	"slices"
 	"strconv"
-	"sync/atomic"
 
 	"github.com/knqu/goexchange/internal/engine"
-	"github.com/knqu/goexchange/internal/feed"
 )
 
-// --- gateway data structures and setup ---
+// --- order request schema ---
 
 // orderRequest is the expected JSON structure for a new order request.
 type orderRequest struct {
@@ -26,32 +25,7 @@ type orderRequest struct {
 	Quantity int64  `json:"quantity"`
 }
 
-// orderCancelRequest is constructed from the order cancellation request path and query parameters.
-type orderCancelRequest struct {
-	AgentID uint64
-	Symbol  string
-	OrderID uint64
-}
-
-// Gateway exposes an exchange via HTTP endpoints.
-// It processes requests into validated commands and routes them to the exchange.
-type Gateway struct {
-	exchange    *engine.Exchange
-	aggregators map[string]*feed.Aggregator
-	messagesBuf int
-	prevOrderID atomic.Uint64 // needs to be atomic because multiple handlers can run concurrently
-}
-
-func (g *Gateway) nextOrderID() engine.OrderID {
-	return engine.OrderID(g.prevOrderID.Add(1))
-}
-
-// NewGateway initializes a new gateway that wraps the given exchange, updating its internal OrderID counter.
-func NewGateway(exchange *engine.Exchange, aggregators map[string]*feed.Aggregator, messagesBuf int, lastOrderID uint64) *Gateway {
-	g := &Gateway{exchange: exchange, aggregators: aggregators, messagesBuf: messagesBuf}
-	g.prevOrderID.Store(lastOrderID)
-	return g
-}
+// --- http routes ---
 
 // RegisterRoutes adds the gateway's routes to mux; caller owns both mux and http.Server (and its lifecycle/shutdown).
 func (g *Gateway) RegisterRoutes(mux *http.ServeMux) {
@@ -64,7 +38,7 @@ func (g *Gateway) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /admin/symbols", g.handleSymbols)
 }
 
-// --- gateway handlers ---
+// --- http handlers ---
 
 func (g *Gateway) handleNewOrder(w http.ResponseWriter, r *http.Request) {
 	var req orderRequest
@@ -74,25 +48,41 @@ func (g *Gateway) handleNewOrder(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	cmd, err := g.parseOrder(req)
+	side, err := parseSide(req.Side)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusUnprocessableEntity)
+		writeError(w, err)
 		return
 	}
 
-	accepted, err := g.exchange.TryDispatch(req.Symbol, cmd)
+	orderType, err := parseType(req.Type)
 	if err != nil {
-		http.Error(w, "unknown symbol", http.StatusNotFound)
+		writeError(w, err)
 		return
 	}
-	if !accepted {
-		http.Error(w, "engine at capacity, retry", http.StatusServiceUnavailable)
+
+	tif, err := parseTIF(req.TIF)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+
+	orderID, err := g.SubmitOrder(req.Symbol, engine.Order{
+		// ID is set by g.SubmitOrder()
+		AgentID:  engine.AgentID(req.AgentID),
+		Side:     side,
+		Type:     orderType,
+		TIF:      tif,
+		Price:    req.Price,
+		Quantity: req.Quantity,
+	})
+	if err != nil {
+		writeError(w, err)
 		return
 	}
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusAccepted)
-	json.NewEncoder(w).Encode(map[string]any{"orderId": cmd.Order.ID})
+	json.NewEncoder(w).Encode(map[string]any{"orderId": orderID})
 }
 
 func (g *Gateway) handleCancelOrder(w http.ResponseWriter, r *http.Request) {
@@ -110,19 +100,8 @@ func (g *Gateway) handleCancelOrder(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	cmd, err := g.parseCancelOrder(orderCancelRequest{AgentID: agentID, Symbol: symbol, OrderID: orderID})
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusUnprocessableEntity)
-		return
-	}
-
-	accepted, err := g.exchange.TryDispatch(symbol, cmd)
-	if err != nil {
-		http.Error(w, "unknown symbol", http.StatusNotFound)
-		return
-	}
-	if !accepted {
-		http.Error(w, "engine at capacity, retry", http.StatusServiceUnavailable)
+	if err := g.CancelOrder(engine.AgentID(agentID), symbol, engine.OrderID(orderID)); err != nil {
+		writeError(w, err)
 		return
 	}
 
@@ -132,13 +111,8 @@ func (g *Gateway) handleCancelOrder(w http.ResponseWriter, r *http.Request) {
 func (g *Gateway) handleHaltTrading(w http.ResponseWriter, r *http.Request) {
 	symbol := r.PathValue("symbol")
 
-	accepted, err := g.exchange.TryDispatch(symbol, engine.Command{Type: engine.CmdHalt})
-	if err != nil {
-		http.Error(w, "unknown symbol", http.StatusNotFound)
-		return
-	}
-	if !accepted {
-		http.Error(w, "engine at capacity, retry", http.StatusServiceUnavailable)
+	if err := g.dispatch(symbol, engine.Command{Type: engine.CmdHalt}); err != nil {
+		writeError(w, err)
 		return
 	}
 
@@ -148,13 +122,8 @@ func (g *Gateway) handleHaltTrading(w http.ResponseWriter, r *http.Request) {
 func (g *Gateway) handleResumeTrading(w http.ResponseWriter, r *http.Request) {
 	symbol := r.PathValue("symbol")
 
-	accepted, err := g.exchange.TryDispatch(symbol, engine.Command{Type: engine.CmdResume})
-	if err != nil {
-		http.Error(w, "unknown symbol", http.StatusNotFound)
-		return
-	}
-	if !accepted {
-		http.Error(w, "engine at capacity, retry", http.StatusServiceUnavailable)
+	if err := g.dispatch(symbol, engine.Command{Type: engine.CmdResume}); err != nil {
+		writeError(w, err)
 		return
 	}
 
@@ -173,16 +142,11 @@ func (g *Gateway) handleDepthQuery(w http.ResponseWriter, r *http.Request) {
 	// depth queries are queued alongside other commands and answered in sequence with live trading
 	reply := make(chan engine.DepthSnapshot, 1) // set capacity to 1 so engine never blocks sending
 
-	accepted, err := g.exchange.TryDispatch(symbol, engine.Command{Type: engine.CmdDepth, DepthQuery: engine.DepthQuery{
+	if err := g.dispatch(symbol, engine.Command{Type: engine.CmdDepth, DepthQuery: engine.DepthQuery{
 		Depth: depth,
 		Reply: reply,
-	}})
-	if err != nil {
-		http.Error(w, "unknown symbol", http.StatusNotFound)
-		return
-	}
-	if !accepted {
-		http.Error(w, "engine at capacity, retry", http.StatusServiceUnavailable)
+	}}); err != nil {
+		writeError(w, err)
 		return
 	}
 
@@ -207,67 +171,20 @@ func (g *Gateway) handleSymbols(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(map[string][]string{"symbols": symbols})
 }
 
-// --- parsing helpers ---
+// --- helpers ---
 
-// parseOrder validates the order request and converts it into an engine command.
-func (g *Gateway) parseOrder(req orderRequest) (engine.Command, error) {
-	side, err := parseSide(req.Side)
-	if err != nil {
-		return engine.Command{}, err
+// writeError responds with the HTTP status corresponding to a gateway error category.
+func writeError(w http.ResponseWriter, err error) {
+	switch {
+	case errors.Is(err, ErrInvalidRequest):
+		http.Error(w, err.Error(), http.StatusUnprocessableEntity)
+	case errors.Is(err, ErrUnknownSymbol):
+		http.Error(w, err.Error(), http.StatusNotFound)
+	case errors.Is(err, ErrQueueFull):
+		http.Error(w, err.Error(), http.StatusServiceUnavailable)
+	default:
+		http.Error(w, err.Error(), http.StatusInternalServerError)
 	}
-
-	orderType, err := parseType(req.Type)
-	if err != nil {
-		return engine.Command{}, err
-	}
-
-	tif, err := parseTIF(req.TIF)
-	if err != nil {
-		return engine.Command{}, err
-	}
-
-	if req.AgentID == 0 {
-		return engine.Command{}, fmt.Errorf("agent id must be non-zero")
-	}
-
-	if orderType == engine.Limit && req.Price <= 0 {
-		return engine.Command{}, fmt.Errorf("limit order needs positive price, got %d", req.Price)
-	}
-	if orderType == engine.Market && req.Price != 0 {
-		return engine.Command{}, fmt.Errorf("market order must not carry a price")
-	}
-
-	if req.Quantity <= 0 {
-		return engine.Command{}, fmt.Errorf("quantity must be positive, got %d", req.Quantity)
-	}
-
-	return engine.Command{
-		Type: engine.CmdSubmit,
-		Order: engine.Order{
-			ID:       g.nextOrderID(),
-			AgentID:  engine.AgentID(req.AgentID),
-			Side:     side,
-			Type:     orderType,
-			TIF:      tif,
-			Price:    req.Price,
-			Quantity: req.Quantity,
-		},
-	}, nil
-}
-
-func (g *Gateway) parseCancelOrder(req orderCancelRequest) (engine.Command, error) {
-	if req.AgentID == 0 {
-		return engine.Command{}, fmt.Errorf("agent id must be non-zero")
-	}
-
-	if req.OrderID == 0 {
-		return engine.Command{}, fmt.Errorf("order id must be non-zero")
-	}
-
-	return engine.Command{
-		Type:     engine.CmdCancel,
-		CancelID: engine.OrderID(req.OrderID),
-	}, nil
 }
 
 func parseSide(s string) (engine.Side, error) {
@@ -277,7 +194,7 @@ func parseSide(s string) (engine.Side, error) {
 	case "sell":
 		return engine.Sell, nil
 	}
-	return 0, fmt.Errorf("invalid side %q (want buy|sell)", s)
+	return 0, fmt.Errorf("%w: invalid side %q (want buy|sell)", ErrInvalidRequest, s)
 }
 
 func parseType(s string) (engine.OrderType, error) {
@@ -287,7 +204,7 @@ func parseType(s string) (engine.OrderType, error) {
 	case "market":
 		return engine.Market, nil
 	}
-	return 0, fmt.Errorf("invalid type %q (want limit|market)", s)
+	return 0, fmt.Errorf("%w: invalid type %q (want limit|market)", ErrInvalidRequest, s)
 }
 
 func parseTIF(s string) (engine.TIF, error) {
@@ -299,5 +216,5 @@ func parseTIF(s string) (engine.TIF, error) {
 	case "fok":
 		return engine.FOK, nil
 	}
-	return 0, fmt.Errorf("invalid tif %q (want day|ioc|fok)", s)
+	return 0, fmt.Errorf("%w: invalid tif %q (want day|ioc|fok)", ErrInvalidRequest, s)
 }
